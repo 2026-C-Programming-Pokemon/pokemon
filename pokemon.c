@@ -7,6 +7,7 @@
 #define TEAM_SIZE 6
 #define MOVE_SLOT_COUNT 4
 #define BATTLE_LEVEL 60
+#define DEFAULT_INDIVIDUAL_VALUE 31
 
 /* 포켓몬 타입을 숫자 상수로 다루기 위한 열거형입니다. */
 typedef enum {
@@ -403,16 +404,48 @@ float getTypeEffectiveness(PokemonType attackType, PokemonType defenderType1, Po
     return effectiveness;
 }
 
+/* HP 종족값, 개체값, 레벨로 전투에 사용할 최종 HP를 계산합니다. */
+int calculateFinalHp(int baseHp, int individualValue, int level)
+{
+    return ((baseHp * 2 + individualValue) * level) / 100 + level + 10;
+}
+
+/* HP 이외의 종족값, 개체값, 레벨로 전투에 사용할 최종 능력치를 계산합니다. */
+int calculateFinalNonHpStat(int baseStat, int individualValue, int level)
+{
+    return ((baseStat * 2 + individualValue) * level) / 100 + 5;
+}
+
+/* 도감의 종족값 포켓몬을 레벨과 개체값이 반영된 전투용 능력치로 바꿉니다. */
+Pokemon calculateFinalPokemonStats(Pokemon basePokemon, int level, int individualValue)
+{
+    Pokemon finalPokemon = basePokemon;
+
+    finalPokemon.hp = calculateFinalHp(basePokemon.hp, individualValue, level);
+    finalPokemon.atk = calculateFinalNonHpStat(basePokemon.atk, individualValue, level);
+    finalPokemon.def = calculateFinalNonHpStat(basePokemon.def, individualValue, level);
+    finalPokemon.spa = calculateFinalNonHpStat(basePokemon.spa, individualValue, level);
+    finalPokemon.spd = calculateFinalNonHpStat(basePokemon.spd, individualValue, level);
+    finalPokemon.agi = calculateFinalNonHpStat(basePokemon.agi, individualValue, level);
+
+    return finalPokemon;
+}
+
 /* 도감 포켓몬을 전투용 포켓몬으로 바꾸고 전투 상태를 초기화합니다. */
 BattlePokemon createBattlePokemon(Pokemon pokemon, int level)
 {
     BattlePokemon battlePokemon;
+    Pokemon finalPokemon;
 
-    /* 레벨 인자는 남겨두지만, 현재 게임 규칙상 모든 전투 레벨은 60입니다. */
-    (void)level;
-    battlePokemon.pokemon = pokemon;
-    battlePokemon.level = BATTLE_LEVEL;
-    battlePokemon.currentHp = pokemon.hp;
+    if (level <= 0) {
+        level = BATTLE_LEVEL;
+    }
+
+    finalPokemon = calculateFinalPokemonStats(pokemon, level, DEFAULT_INDIVIDUAL_VALUE);
+
+    battlePokemon.pokemon = finalPokemon;
+    battlePokemon.level = level;
+    battlePokemon.currentHp = finalPokemon.hp;
     battlePokemon.moveCount = 0;
     battlePokemon.atkStage = 0;
     battlePokemon.defStage = 0;
