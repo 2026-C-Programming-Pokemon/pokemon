@@ -3,7 +3,8 @@
 포켓몬 스프라이트 이미지를 ASCII 아트 텍스트로 변환하기 위한 보조 도구 폴더입니다.
 
 ## 목적
-- 이미지 기반 포켓몬 스프라이트를 ASCII 문자열로 변환
+- 이미지 기반 포켓몬 스프라이트를 터미널용 문자 아트로 변환
+- 특히 포켓몬 도트 스프라이트에 맞게 **블록 문자 기반 출력**을 우선 사용
 - 변환 결과를 C 코드에 붙이기 쉬운 형태로 저장
 - 런타임 의존성이 아니라, 사전 생성용 도구로 사용
 
@@ -23,13 +24,13 @@ python3 -m pip install Pillow
 `input/` 폴더에 이미지가 있으면 파일명만 넘겨도 됩니다.
 
 ```sh
-python3 tools/ascii_converter/convert_sprite.py pikachu.png
+python3 tools/ascii_converter/convert_sprite.py pikachu.png --mode blocks
 ```
 
 다른 위치의 이미지도 직접 지정할 수 있습니다.
 
 ```sh
-python3 tools/ascii_converter/convert_sprite.py ./sprite.png --width 56
+python3 tools/ascii_converter/convert_sprite.py ./sprite.png --mode blocks --width 24
 ```
 
 기본 출력:
@@ -43,8 +44,10 @@ python3 tools/ascii_converter/convert_sprite.py --help
 ```
 
 주요 옵션:
-- `--width` : ASCII 결과 가로 문자 수
-- `--chars` : 어두운 픽셀부터 밝은 픽셀까지 사용할 문자 목록
+- `--mode blocks` : 포켓몬 도트 스프라이트용 추천 모드
+- `--mode ascii` : 전통적인 명암 기반 ASCII 모드
+- `--width` : 결과 가로 문자 수
+- `--chars` : ASCII 모드에서 사용할 문자 목록
 - `--invert` : 문자 밝기 매핑 반전
 - `--output` : 사람이 읽는 `.txt` 출력 경로 지정
 - `--generated` : C용 생성 파일 경로 지정
