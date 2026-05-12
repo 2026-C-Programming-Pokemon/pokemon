@@ -15,7 +15,7 @@ OUTPUT_DIR = Path(__file__).parent / "output"
 GENERATED_DIR = Path(__file__).parent / "generated"
 
 DEFAULT_ASCII_CHARS = " .:-=+*#%@"
-DEFAULT_BLOCK_THRESHOLDS = (64, 128, 192)
+DEFAULT_BLOCK_THRESHOLDS = (96, 176, 224)
 
 
 def parse_args() -> argparse.Namespace:
