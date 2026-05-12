@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-w", "--width", type=int, default=32, help="Output width in characters.")
     parser.add_argument(
         "--mode",
-        choices=("ascii", "blocks", "halfblocks", "color-halfblocks"),
+        choices=("ascii", "blocks", "halfblocks", "color-halfblocks", "braille"),
         default="blocks",
         help="Rendering mode.",
     )
@@ -168,6 +168,44 @@ def image_to_halfblock_rows(image: Image.Image, width: int, invert: bool) -> lis
     return rows
 
 
+
+
+def image_to_braille_rows(image: Image.Image, width: int, invert: bool) -> list[str]:
+    # Braille cell maps a 2x4 pixel block into one Unicode character.
+    resized = resize_sprite(image, width * 2, vertical_scale=2.0, nearest=True)
+    height = resized.height
+    remainder = height % 4
+    if remainder:
+        height += (4 - remainder)
+        canvas = Image.new("RGBA", (resized.width, height), (255, 255, 255, 0))
+        canvas.paste(resized, (0, 0))
+        resized = canvas
+
+    rows: list[str] = []
+    thresholds = DEFAULT_BLOCK_THRESHOLDS[::-1] if invert else DEFAULT_BLOCK_THRESHOLDS
+
+    def on(pixel):
+        b = pixel_brightness(pixel)
+        if invert:
+            return b > thresholds[0]
+        return b < thresholds[1]
+
+    # Braille dots bit positions: 1,2,3,7 on left and 4,5,6,8 on right
+    dot_map = [
+        ((0, 0), 0x01), ((0, 1), 0x02), ((0, 2), 0x04), ((0, 3), 0x40),
+        ((1, 0), 0x08), ((1, 1), 0x10), ((1, 2), 0x20), ((1, 3), 0x80),
+    ]
+
+    for y in range(0, resized.height, 4):
+        line = []
+        for x in range(0, resized.width, 2):
+            bits = 0
+            for (dx, dy), mask in dot_map:
+                if on(resized.getpixel((x + dx, y + dy))):
+                    bits |= mask
+            line.append(chr(0x2800 + bits) if bits else ' ')
+        rows.append(''.join(line).rstrip())
+    return rows
 def image_to_color_halfblock_rows(image: Image.Image, width: int) -> list[str]:
     resized = resize_sprite(image, width, vertical_scale=1.0, nearest=True)
     rows: list[str] = []
@@ -189,7 +227,9 @@ def render_rows(image: Image.Image, width: int, mode: str, chars: str, invert: b
         return image_to_block_rows(image, width, invert)
     if mode == "halfblocks":
         return image_to_halfblock_rows(image, width, invert)
-    return image_to_color_halfblock_rows(image, width)
+    if mode == "color-halfblocks":
+        return image_to_color_halfblock_rows(image, width)
+    return image_to_braille_rows(image, width, invert)
 
 
 def write_text_output(path: Path, rows: list[str]) -> None:
