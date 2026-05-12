@@ -1,0 +1,51 @@
+# ASCII Converter
+
+포켓몬 스프라이트 이미지를 ASCII 아트 텍스트로 변환하기 위한 보조 도구 폴더입니다.
+
+## 목적
+- 이미지 기반 포켓몬 스프라이트를 ASCII 문자열로 변환
+- 변환 결과를 C 코드에 붙이기 쉬운 형태로 저장
+- 런타임 의존성이 아니라, 사전 생성용 도구로 사용
+
+## 폴더 구조
+- `input/` : 원본 스프라이트 이미지 넣는 곳
+- `output/` : 사람이 확인하기 쉬운 `.txt` 결과
+- `generated/` : C에 옮기기 좋은 생성 결과물
+
+## 사용법
+
+Pillow가 필요합니다.
+
+```sh
+python3 -m pip install Pillow
+```
+
+`input/` 폴더에 이미지가 있으면 파일명만 넘겨도 됩니다.
+
+```sh
+python3 tools/ascii_converter/convert_sprite.py pikachu.png
+```
+
+다른 위치의 이미지도 직접 지정할 수 있습니다.
+
+```sh
+python3 tools/ascii_converter/convert_sprite.py ./sprite.png --width 56
+```
+
+기본 출력:
+- `output/<이미지이름>.txt` : 사람이 읽기 쉬운 ASCII 아트
+- `generated/<이미지이름>.inc` : C 코드에 붙이기 쉬운 `static const char *...[]` 조각
+
+## 옵션
+
+```sh
+python3 tools/ascii_converter/convert_sprite.py --help
+```
+
+주요 옵션:
+- `--width` : ASCII 결과 가로 문자 수
+- `--chars` : 어두운 픽셀부터 밝은 픽셀까지 사용할 문자 목록
+- `--invert` : 문자 밝기 매핑 반전
+- `--output` : 사람이 읽는 `.txt` 출력 경로 지정
+- `--generated` : C용 생성 파일 경로 지정
+- `--c-name` : C 변수 이름 지정
