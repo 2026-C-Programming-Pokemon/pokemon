@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert sprite images into block/ASCII text and C-friendly snippets."""
+"""Convert sprite images into multiple terminal-friendly text render modes."""
 
 from __future__ import annotations
 
@@ -20,16 +20,16 @@ DEFAULT_BLOCK_THRESHOLDS = (64, 128, 192)
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Convert one sprite image into text art and a C string snippet.",
+        description="Convert one sprite image into text art and a C-friendly snippet.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("image", type=Path, help="Input sprite image path (input/ folder checked first).")
     parser.add_argument("-w", "--width", type=int, default=32, help="Output width in characters.")
     parser.add_argument(
         "--mode",
-        choices=("ascii", "blocks"),
+        choices=("ascii", "blocks", "halfblocks", "color-halfblocks"),
         default="blocks",
-        help="Rendering mode. blocks is recommended for pixel-art sprites.",
+        help="Rendering mode.",
     )
     parser.add_argument("--chars", default=DEFAULT_ASCII_CHARS, help="ASCII characters from darkest to brightest.")
     parser.add_argument("--invert", action="store_true", help="Reverse brightness mapping.")
@@ -59,29 +59,18 @@ def load_image(path: Path) -> Image.Image:
     return Image.open(path).convert("RGBA")
 
 
-def resize_for_ascii(image: Image.Image, width: int) -> Image.Image:
+def resize_sprite(image: Image.Image, width: int, *, vertical_scale: float, nearest: bool = False) -> Image.Image:
     if width <= 0:
         raise ValueError("width must be greater than 0")
     source_width, source_height = image.size
     if source_width <= 0 or source_height <= 0:
         raise ValueError("image has invalid dimensions")
     aspect_ratio = source_height / source_width
-    height = max(1, round(width * aspect_ratio * 0.5))
-    resample = getattr(Image, "Resampling", Image).LANCZOS
-    return image.resize((width, height), resample)
-
-
-def resize_for_blocks(image: Image.Image, width: int) -> Image.Image:
-    if width <= 0:
-        raise ValueError("width must be greater than 0")
-    source_width, source_height = image.size
-    if source_width <= 0 or source_height <= 0:
-        raise ValueError("image has invalid dimensions")
-    aspect_ratio = source_height / source_width
-    height = max(2, round(width * aspect_ratio))
-    if height % 2 == 1:
+    height = max(1, round(width * aspect_ratio * vertical_scale))
+    if nearest and height % 2 == 1:
         height += 1
-    resample = getattr(Image, "Resampling", Image).NEAREST
+    resampling_api = getattr(Image, "Resampling", Image)
+    resample = resampling_api.NEAREST if nearest else resampling_api.LANCZOS
     return image.resize((width, height), resample)
 
 
@@ -117,10 +106,24 @@ def brightness_to_block(brightness: float, invert: bool) -> str:
     return " "
 
 
+def rgba_to_ansi_fg(pixel: tuple[int, int, int, int]) -> str:
+    r, g, b, a = pixel
+    if a < 20:
+        return "\033[39m"
+    return f"\033[38;2;{r};{g};{b}m"
+
+
+def rgba_to_ansi_bg(pixel: tuple[int, int, int, int]) -> str:
+    r, g, b, a = pixel
+    if a < 20:
+        return "\033[49m"
+    return f"\033[48;2;{r};{g};{b}m"
+
+
 def image_to_ascii_rows(image: Image.Image, width: int, chars: str, invert: bool) -> list[str]:
     if len(chars) < 2:
         raise ValueError("chars must contain at least two characters")
-    resized = resize_for_ascii(image, width)
+    resized = resize_sprite(image, width, vertical_scale=0.5, nearest=False)
     rows: list[str] = []
     for y in range(resized.height):
         row = []
@@ -132,7 +135,19 @@ def image_to_ascii_rows(image: Image.Image, width: int, chars: str, invert: bool
 
 
 def image_to_block_rows(image: Image.Image, width: int, invert: bool) -> list[str]:
-    resized = resize_for_blocks(image, width)
+    resized = resize_sprite(image, width, vertical_scale=1.0, nearest=True)
+    rows: list[str] = []
+    for y in range(resized.height):
+        row = []
+        for x in range(resized.width):
+            brightness = pixel_brightness(resized.getpixel((x, y)))
+            row.append(brightness_to_block(brightness, invert))
+        rows.append("".join(row).rstrip())
+    return rows
+
+
+def image_to_halfblock_rows(image: Image.Image, width: int, invert: bool) -> list[str]:
+    resized = resize_sprite(image, width, vertical_scale=1.0, nearest=True)
     rows: list[str] = []
     for y in range(0, resized.height, 2):
         row = []
@@ -153,10 +168,28 @@ def image_to_block_rows(image: Image.Image, width: int, invert: bool) -> list[st
     return rows
 
 
+def image_to_color_halfblock_rows(image: Image.Image, width: int) -> list[str]:
+    resized = resize_sprite(image, width, vertical_scale=1.0, nearest=True)
+    rows: list[str] = []
+    for y in range(0, resized.height, 2):
+        parts = []
+        for x in range(resized.width):
+            top = resized.getpixel((x, y))
+            bottom = resized.getpixel((x, y + 1))
+            parts.append(f"{rgba_to_ansi_fg(top)}{rgba_to_ansi_bg(bottom)}▀")
+        parts.append("\033[0m")
+        rows.append("".join(parts))
+    return rows
+
+
 def render_rows(image: Image.Image, width: int, mode: str, chars: str, invert: bool) -> list[str]:
     if mode == "ascii":
         return image_to_ascii_rows(image, width, chars, invert)
-    return image_to_block_rows(image, width, invert)
+    if mode == "blocks":
+        return image_to_block_rows(image, width, invert)
+    if mode == "halfblocks":
+        return image_to_halfblock_rows(image, width, invert)
+    return image_to_color_halfblock_rows(image, width)
 
 
 def write_text_output(path: Path, rows: list[str]) -> None:
@@ -165,7 +198,7 @@ def write_text_output(path: Path, rows: list[str]) -> None:
 
 
 def c_escape(line: str) -> str:
-    return line.replace("\\", "\\\\").replace('"', '\\"')
+    return line.replace("\\", "\\\\").replace('"', '\\"').replace("\033", "\\033")
 
 
 def write_c_output(path: Path, rows: list[str], c_name: str) -> None:
