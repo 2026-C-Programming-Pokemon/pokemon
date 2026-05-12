@@ -2,11 +2,13 @@
 
 포켓몬 스프라이트 이미지를 터미널용 문자 아트로 변환하기 위한 보조 도구 폴더입니다.
 
-## 목적
-- 이미지 기반 포켓몬 스프라이트를 터미널용 문자 아트로 변환
-- 특히 포켓몬 도트 스프라이트에 맞게 **반블록 / 블록 문자 기반 출력**을 우선 사용
-- 변환 결과를 C 코드에 붙이기 쉬운 형태로 저장
-- 런타임 의존성이 아니라, 사전 생성용 도구로 사용
+## 현재 기준 방향
+이 프로젝트에서는 여러 실험 끝에 **더 어두운 반블록 렌더링(dark halfblock)** 을 기본 기준으로 잡습니다.
+
+이유:
+- 포켓몬 형체가 비교적 잘 보임
+- 밝은 포켓몬이 배경에 날아가는 현상이 줄어듦
+- TUI에 붙였을 때 크기 대비 식별성이 괜찮음
 
 ## 폴더 구조
 - `input/` : 원본 스프라이트 이미지 넣는 곳
@@ -22,40 +24,19 @@ Pillow가 필요합니다.
 python3 -m pip install Pillow
 ```
 
-기본 추천 모드는 `halfblocks` 입니다.
+기본 추천 실행 예시:
 
 ```sh
-python3 tools/ascii_converter/convert_sprite.py pikachu.png --mode halfblocks --width 48
+python3 tools/ascii_converter/convert_sprite.py 025.png --mode halfblocks --width 64
 ```
 
-다른 위치의 이미지도 직접 지정할 수 있습니다.
+현재는 스크립트 내부 임계값을 더 어둡게 조정해둔 상태라,
+`halfblocks + width 64` 조합을 기준안으로 보면 됩니다.
 
-```sh
-python3 tools/ascii_converter/convert_sprite.py ./sprite.png --mode color-halfblocks --width 48
-```
-
-기본 출력:
-- `output/<이미지이름>.<mode>.txt` : 사람이 읽기 쉬운 결과
-- `generated/<이미지이름>.<mode>.inc` : C 코드에 붙이기 쉬운 `static const char *...[]` 조각
-
-## 옵션
-
-```sh
-python3 tools/ascii_converter/convert_sprite.py --help
-```
-
-주요 옵션:
-- `--mode ascii` : 전통적인 명암 기반 ASCII 모드
-- `--mode blocks` : 단순 블록 문자 기반 모드
-- `--mode halfblocks` : `▀`, `▄`, `█` 기반 반블록 모드 (추천)
-- `--mode color-halfblocks` : ANSI 색 + 반블록 모드
-- `--width` : 결과 가로 문자 수
-- `--chars` : ASCII 모드에서 사용할 문자 목록
-- `--invert` : 문자 밝기 매핑 반전
-- `--output` : 사람이 읽는 `.txt` 출력 경로 지정
-- `--generated` : C용 생성 파일 경로 지정
-- `--c-name` : C 변수 이름 지정
+## 출력
+- `output/<이름>.halfblocks.dark.w64.txt` 같은 사람이 보는 결과
+- `generated/<이름>.halfblocks.dark.w64.inc` 같은 C 포함용 결과
 
 ## 메모
-- 순수 ASCII보다 반블록/컬러 반블록이 포켓몬 도트 스프라이트에 더 잘 맞습니다.
-- 실제 TUI 반영 전에는 `output/` 결과를 먼저 눈으로 확인하는 것을 권장합니다.
+- 순수 ASCII, 점자, 컬러 반블록 등은 실험했지만 현재는 정리 대상입니다.
+- 필요하면 나중에 다시 실험 브랜치에서 분기할 수 있습니다.
