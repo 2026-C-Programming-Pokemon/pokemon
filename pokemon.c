@@ -3,6 +3,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "llm/llm.h"
+
 #define POKEMON_COUNT 81
 #define TEAM_SIZE 6
 #define MOVE_SLOT_COUNT 4
@@ -1352,10 +1354,41 @@ void battleTurn(BattlePokemon *first, Move firstMove, BattlePokemon *second, Mov
     applyEndTurnStatusDamage(second);
 }
 
+/*
+ * LLM 으로 전투 오프닝 나레이션 한 줄을 생성해서 출력합니다.
+ * API 키가 없거나 호출이 실패하면 기본 문구로 폴백합니다.
+ */
+void printBattleIntro(BattlePokemon first, BattlePokemon second)
+{
+    char prompt[512];
+    char narration[1024];
+
+    if (!llm_is_available()) {
+        printf("\n%s와(과) %s의 1대1 배틀이 시작됐다!\n",
+               first.pokemon.name, second.pokemon.name);
+        return;
+    }
+
+    snprintf(prompt, sizeof(prompt),
+        "포켓몬 배틀의 오프닝 한 줄 나레이션을 한국어로 만들어줘. "
+        "양 포켓몬은 %s 와 %s 야. "
+        "60자 이내, 한 문장, 따옴표나 마크다운 없이 평문으로만 답해.",
+        first.pokemon.name, second.pokemon.name);
+
+    if (llm_generate(prompt, narration, sizeof(narration)) == 0 && narration[0] != '\0') {
+        printf("\n%s\n", narration);
+    } else {
+        printf("\n%s와(과) %s의 1대1 배틀이 시작됐다!\n",
+               first.pokemon.name, second.pokemon.name);
+    }
+}
+
 /* 두 포켓몬 중 하나가 쓰러질 때까지 1대1 배틀을 반복합니다. */
 BattlePokemon *battleOneOnOne(BattlePokemon *first, Move firstMove, BattlePokemon *second, Move secondMove)
 {
     int turn = 1;
+
+    printBattleIntro(*first, *second);
 
     while (!isFainted(*first) && !isFainted(*second)) {
         printf("\n--- %d턴 ---\n", turn);
@@ -1378,10 +1411,21 @@ int main(void)
     /* 랜덤 팀과 랜덤 기술배치를 매 실행마다 다르게 만들기 위한 시드입니다. */
     srand((unsigned int)time(NULL));
 
+    llm_init();
+
     /* 현재 main은 플레이어 랜덤 팀을 생성하고 출력하는 테스트 진입점입니다. */
     Trainer player = createRandomTrainer("플레이어", 50);
+    Trainer rival  = createRandomTrainer("라이벌", 50);
 
     printTrainerTeam(player);
 
+    BattlePokemon p1 = player.team[0];
+    BattlePokemon p2 = rival.team[0];
+    Move m1 = (p1.moveCount > 0) ? p1.moves[0] : getFallbackMove();
+    Move m2 = (p2.moveCount > 0) ? p2.moves[0] : getFallbackMove();
+
+    battleOneOnOne(&p1, m1, &p2, m2);
+
+    llm_cleanup();
     return 0;
 }
