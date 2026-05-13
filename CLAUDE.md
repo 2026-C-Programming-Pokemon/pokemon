@@ -53,8 +53,8 @@ llm_cleanup();
 
 ## 현재 LLM 연결 지점
 
-- [pokemon.c](pokemon.c) `printBattleIntro` — 1대1 배틀 시작 시 오프닝 한 줄을 LLM 으로 생성. 시범 적용.
-- 확장 후보: `attackPokemon` 의 효과 굉장했을 때 대사, `battleOneOnOne` 의 승리 선언 대사.
+- 없음. 나레이션 용도는 모두 제거됨. LLM 은 "판단" 용도 (예: 기술 선택, 교체 결정 등) 로만 사용할 예정.
+- 인터페이스 ([llm/llm.h](llm/llm.h)) 와 통신 모듈 ([llm/llm.c](llm/llm.c)) 은 그대로 유지. 호출 측에서 `llm_generate` 를 부르면 됨.
 
 ## 관련 이슈
 

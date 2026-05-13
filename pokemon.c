@@ -1354,41 +1354,10 @@ void battleTurn(BattlePokemon *first, Move firstMove, BattlePokemon *second, Mov
     applyEndTurnStatusDamage(second);
 }
 
-/*
- * LLM 으로 전투 오프닝 나레이션 한 줄을 생성해서 출력합니다.
- * API 키가 없거나 호출이 실패하면 기본 문구로 폴백합니다.
- */
-void printBattleIntro(BattlePokemon first, BattlePokemon second)
-{
-    char prompt[512];
-    char narration[1024];
-
-    if (!llm_is_available()) {
-        printf("\n%s와(과) %s의 1대1 배틀이 시작됐다!\n",
-               first.pokemon.name, second.pokemon.name);
-        return;
-    }
-
-    snprintf(prompt, sizeof(prompt),
-        "포켓몬 배틀의 오프닝 한 줄 나레이션을 한국어로 만들어줘. "
-        "양 포켓몬은 %s 와 %s 야. "
-        "60자 이내, 한 문장, 따옴표나 마크다운 없이 평문으로만 답해.",
-        first.pokemon.name, second.pokemon.name);
-
-    if (llm_generate(prompt, narration, sizeof(narration)) == 0 && narration[0] != '\0') {
-        printf("\n%s\n", narration);
-    } else {
-        printf("\n%s와(과) %s의 1대1 배틀이 시작됐다!\n",
-               first.pokemon.name, second.pokemon.name);
-    }
-}
-
 /* 두 포켓몬 중 하나가 쓰러질 때까지 1대1 배틀을 반복합니다. */
 BattlePokemon *battleOneOnOne(BattlePokemon *first, Move firstMove, BattlePokemon *second, Move secondMove)
 {
     int turn = 1;
-
-    printBattleIntro(*first, *second);
 
     while (!isFainted(*first) && !isFainted(*second)) {
         printf("\n--- %d턴 ---\n", turn);
