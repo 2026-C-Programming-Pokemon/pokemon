@@ -3,6 +3,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "llm/llm.h"
+
 #define POKEMON_COUNT 81
 #define TEAM_SIZE 6
 #define MOVE_SLOT_COUNT 4
@@ -1378,10 +1380,21 @@ int main(void)
     /* 랜덤 팀과 랜덤 기술배치를 매 실행마다 다르게 만들기 위한 시드입니다. */
     srand((unsigned int)time(NULL));
 
+    llm_init();
+
     /* 현재 main은 플레이어 랜덤 팀을 생성하고 출력하는 테스트 진입점입니다. */
     Trainer player = createRandomTrainer("플레이어", 50);
+    Trainer rival  = createRandomTrainer("라이벌", 50);
 
     printTrainerTeam(player);
 
+    BattlePokemon p1 = player.team[0];
+    BattlePokemon p2 = rival.team[0];
+    Move m1 = (p1.moveCount > 0) ? p1.moves[0] : getFallbackMove();
+    Move m2 = (p2.moveCount > 0) ? p2.moves[0] : getFallbackMove();
+
+    battleOneOnOne(&p1, m1, &p2, m2);
+
+    llm_cleanup();
     return 0;
 }
