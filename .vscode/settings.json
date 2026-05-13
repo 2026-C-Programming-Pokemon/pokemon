@@ -1,0 +1,12 @@
+{
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}",
+    "${workspaceFolder}/dogam",
+    "${workspaceFolder}/skill",
+    "${workspaceFolder}/entry",
+    "${workspaceFolder}/battlelogic"
+  ],
+  "code-runner.executorMap": {
+    "c": "cd /Users/yjj/Downloads/pokemon-main && make && ./pokemon"
+  }
+}
