@@ -1,13 +1,31 @@
 #include "llm.h"
 
+#ifdef LLM_DISABLED
+
+/* libcurl 없이도 빌드되도록 한 스텁 구현. 게임은 폴백 메시지로 동작합니다. */
+
+int  llm_init(void)         { return 0; }
+void llm_cleanup(void)      { }
+int  llm_is_available(void) { return 0; }
+
+int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
+{
+    (void)prompt;
+    if (out_buffer != NULL && out_size > 0) out_buffer[0] = '\0';
+    return -1;
+}
+
+#else
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <curl/curl.h>
 
-#define LLM_API_URL          "https://api.anthropic.com/v1/messages"
-#define LLM_API_VERSION      "2023-06-01"
-#define LLM_DEFAULT_MODEL    "claude-haiku-4-5"
+/* 기본은 OpenAI. LLM_BASE_URL 환경변수로 OpenAI 호환 다른 엔드포인트
+ * (예: Ollama 의 http://localhost:11434/v1/chat/completions) 로 갈아끼울 수 있습니다. */
+#define LLM_DEFAULT_URL      "https://api.openai.com/v1/chat/completions"
+#define LLM_DEFAULT_MODEL    "gpt-4o-mini"
 #define LLM_MAX_TOKENS       256
 #define LLM_RESPONSE_BUFFER  (16 * 1024)
 
@@ -89,18 +107,21 @@ static void json_escape(const char *in, char *out, size_t out_size)
 }
 
 /*
- * 응답 JSON 에서 첫 번째 content[0].text 값을 뽑아냅니다.
- * 정식 파서가 아니라, Anthropic Messages 응답 포맷에 한정한 단순 추출입니다.
+ * 응답 JSON 에서 choices[0].message.content 값을 뽑아냅니다.
+ * 정식 파서가 아니라, OpenAI Chat Completions 응답 포맷에 한정한 단순 추출입니다.
  * 응답 예시:
- *   { ..., "content":[{"type":"text","text":"...실제 텍스트..."}], ... }
+ *   { ..., "choices":[{"index":0,"message":{"role":"assistant","content":"...실제 텍스트..."}, ...}], ... }
  * 성공 시 0, 실패 시 -1.
  */
 static int extract_text(const char *json, char *out, size_t out_size)
 {
-    const char *p = strstr(json, "\"text\"");
+    const char *p = strstr(json, "\"message\"");
     if (p == NULL) return -1;
 
-    p = strchr(p + 6, ':');
+    p = strstr(p, "\"content\"");
+    if (p == NULL) return -1;
+
+    p = strchr(p + 9, ':');
     if (p == NULL) return -1;
     p++;
     while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
@@ -164,8 +185,12 @@ void llm_cleanup(void)
 
 int llm_is_available(void)
 {
-    const char *key = getenv("ANTHROPIC_API_KEY");
-    return (key != NULL && key[0] != '\0') ? 1 : 0;
+    /* OpenAI 키가 있거나, LLM_BASE_URL 이 명시되어 있으면 (Ollama 등) 사용 가능으로 본다. */
+    const char *key = getenv("OPENAI_API_KEY");
+    const char *url = getenv("LLM_BASE_URL");
+    if (key != NULL && key[0] != '\0') return 1;
+    if (url != NULL && url[0] != '\0') return 1;
+    return 0;
 }
 
 int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
@@ -177,8 +202,15 @@ int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
         if (llm_init() != 0) return -1;
     }
 
-    const char *api_key = getenv("ANTHROPIC_API_KEY");
-    if (api_key == NULL || api_key[0] == '\0') return -1;
+    /* api_key 는 비어 있어도 됨 (Ollama 로컬). url 도 비면 OpenAI 기본값 사용. */
+    const char *api_key = getenv("OPENAI_API_KEY");
+    const char *url     = getenv("LLM_BASE_URL");
+    if (url == NULL || url[0] == '\0') url = LLM_DEFAULT_URL;
+
+    /* OpenAI 엔드포인트인데 키가 없으면 호출 자체가 의미 없으므로 조기 종료. */
+    if (strstr(url, "api.openai.com") != NULL && (api_key == NULL || api_key[0] == '\0')) {
+        return -1;
+    }
 
     const char *model = getenv("LLM_MODEL");
     if (model == NULL || model[0] == '\0') model = LLM_DEFAULT_MODEL;
@@ -211,13 +243,14 @@ int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
     ResponseBuffer resp = { NULL, 0, 0 };
 
     struct curl_slist *headers = NULL;
-    char auth_header[512];
-    snprintf(auth_header, sizeof(auth_header), "x-api-key: %s", api_key);
-    headers = curl_slist_append(headers, auth_header);
-    headers = curl_slist_append(headers, "anthropic-version: " LLM_API_VERSION);
+    if (api_key != NULL && api_key[0] != '\0') {
+        char auth_header[512];
+        snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", api_key);
+        headers = curl_slist_append(headers, auth_header);
+    }
     headers = curl_slist_append(headers, "content-type: application/json");
 
-    curl_easy_setopt(curl, CURLOPT_URL, LLM_API_URL);
+    curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
@@ -244,3 +277,5 @@ int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
     free(resp.data);
     return result;
 }
+
+#endif /* LLM_DISABLED */

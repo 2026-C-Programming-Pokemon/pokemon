@@ -6,9 +6,9 @@
 /*
  * 포켓몬 배틀용 LLM 호출 모듈.
  *
- * - Anthropic Messages API 를 libcurl 로 호출합니다.
- * - 환경 변수 ANTHROPIC_API_KEY 를 사용합니다.
- * - 모델은 LLM_MODEL 환경 변수로 덮어쓸 수 있고, 없으면 claude-haiku-4-5 입니다.
+ * - OpenAI Chat Completions API 를 libcurl 로 호출합니다.
+ * - 환경 변수 OPENAI_API_KEY 를 사용합니다.
+ * - 모델은 LLM_MODEL 환경 변수로 덮어쓸 수 있고, 없으면 gpt-4o-mini 입니다.
  * - 키가 없거나 호출이 실패하면 함수가 -1 을 돌려주고, 호출 측은 LLM
  *   없이도 게임이 정상 동작하도록 폴백 메시지를 써야 합니다.
  */

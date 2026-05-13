@@ -1,3 +1,5 @@
 pokemon
 *.o
 *.dSYM/
+.env
+
