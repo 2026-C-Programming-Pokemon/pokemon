@@ -10,7 +10,7 @@ ifneq (,$(wildcard .env))
 endif
 
 CC      = cc
-CFLAGS  = -Wall -Wextra -std=c99 -O2 -Illm
+CFLAGS  = -Wall -Wextra -std=c99 -O2 -I. -Illm
 LDFLAGS =
 
 ifeq ($(LLM),0)
@@ -20,7 +20,7 @@ else
   LDLIBS  = -lcurl
 endif
 
-SRC     = pokemon.c llm/llm.c
+SRC     = pokemon.c dogam/dogam.c skill/skill.c battlelogic/battlelogic.c entry/entry.c llm/llm.c
 OBJ     = $(SRC:.c=.o)
 BIN     = pokemon
 

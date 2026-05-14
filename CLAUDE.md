@@ -5,7 +5,13 @@
 ## 프로젝트 개요
 
 - C 언어로 작성한 1세대 포켓몬 TUI 배틀 과제.
-- 핵심 게임 코드: [pokemon.c](pokemon.c) (단일 파일, 1세대 81마리 + 기술 데이터 + 배틀 로직).
+- 핵심 게임 코드:
+  - [pokemon.c](pokemon.c): 실행 화면, 입력, `main`
+  - [pokemon.h](pokemon.h): 공용 타입, 상수, 함수 선언
+  - [dogam/](dogam/): 포켓몬 도감 데이터, 타입 상성, 기본 능력치 계산
+  - [skill/](skill/): 기술 후보/고정 기술 데이터, 기술 배치
+  - [battlelogic/](battlelogic/): 데미지, 상태이상, 턴 진행, AI 기술 선택
+  - [entry/](entry/): 플레이어/상대 트레이너 엔트리 구성
 - 스프라이트 변환 도구: [tools/ascii_converter/](tools/ascii_converter/) — Python 으로 PNG 를 다크 하프블록 유니코드 아트로 변환하여 `generated/*.inc` 에 저장.
 - 외부 LLM 호출 모듈: [llm/](llm/) — libcurl 로 OpenAI Chat Completions API 호출.
 

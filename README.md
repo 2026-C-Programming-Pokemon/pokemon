@@ -35,6 +35,11 @@ make run
 
 ## 구조
 
-- [pokemon.c](pokemon.c) — 게임 본체 (1세대 81마리 + 기술 + 배틀 로직).
+- [pokemon.c](pokemon.c) — 실행 화면, 입력, `main`.
+- [pokemon.h](pokemon.h) — 공용 타입, 상수, 함수 선언.
+- [dogam/](dogam/) — 포켓몬 도감 데이터, 타입 상성, 기본 능력치 계산.
+- [skill/](skill/) — 기술 후보/고정 기술 데이터, 기술 배치.
+- [battlelogic/](battlelogic/) — 데미지, 상태이상, 턴 진행, AI 기술 선택.
+- [entry/](entry/) — 플레이어/상대 트레이너 엔트리 구성.
 - [llm/](llm/) — LLM 호출 모듈. 현재 OpenAI Chat Completions. `LLM_DISABLED` 매크로로 스텁 빌드 가능 (Ollama / 다른 공급자 붙일 때 이 인터페이스만 유지).
 - [tools/ascii_converter/](tools/ascii_converter/) — PNG → 유니코드 ASCII 변환기 (Python).
