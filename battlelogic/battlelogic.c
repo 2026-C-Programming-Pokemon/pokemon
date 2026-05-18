@@ -896,11 +896,18 @@ Move chooseAIMove(BattlePokemon attacker, BattlePokemon defender)
     /* LLM 에게 물어본다. 1..moveCount 범위의 답이면 그 기술을 쓴다. */
     int picked = llm_choose_move(situation, attacker.moveCount);
     if (picked >= 1 && picked <= attacker.moveCount) {
+        /* 디버그: LLM 경로가 성공했음을 stderr 로 알린다 (게임 화면 오염 방지). */
+        fprintf(stderr, "[LLM] %s: LLM 이 기술 %d번(%s) 선택\n",
+                attacker.pokemon.name, picked, attacker.moves[picked - 1].name);
         return attacker.moves[picked - 1];
     }
 
     /* LLM 이 없거나 응답을 못 읽으면 무작위로 고른다. */
-    return attacker.moves[rand() % attacker.moveCount];
+    int fallbackIndex = rand() % attacker.moveCount;
+    fprintf(stderr, "[LLM] %s: 폴백 → 무작위로 기술 %d번(%s) 선택\n",
+            attacker.pokemon.name, fallbackIndex + 1,
+            attacker.moves[fallbackIndex].name);
+    return attacker.moves[fallbackIndex];
 }
 
 /* 1대1 전투 상태를 간단히 출력합니다. */

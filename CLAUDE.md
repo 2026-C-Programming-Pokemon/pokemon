@@ -30,11 +30,18 @@
 
 ## 현재 브랜치 컨텍스트
 
-- `feat/api-proxy-server`
-  - `app/` 프록시 서버 추가
-  - Unix 배경음악 폴백 안정화 반영
-- `feat/#1-ascii-art-sprite`
-  - 스프라이트/ASCII 아트 작업 브랜치
+- `feat/api-proxy-server` — 현재 작업 브랜치. 지금까지 진행한 내용:
+  1. **통신 규격 v1** ([docs/proxy-protocol.md](docs/proxy-protocol.md)) 정립 — HMAC 서명 +
+     `X-Pokemon-Protocol` 버전 헤더 + 본문 엄격 스키마. 프록시는 "규격에 맞는 요청만" 통과.
+  2. **C 클라이언트가 규격 구현** — `llm/llm.c` 가 서명 헤더를 붙여 프록시를 호출.
+     의존성 제거: libcurl → POSIX/winsock 소켓 직접 구현, HMAC/SHA256 → 공개 도메인 vendoring.
+  3. **LLM 을 게임에 연결** — 적 AI 기술 선택(`chooseAIMove`)이 `llm_choose_move` 를 호출.
+     LLM 이 1~N 숫자를 주면 그 기술, 실패하면 무작위 폴백. (이전 그리디 점수 로직은
+     `scoreStatusMove` 로 파일에 남아 있으나 미사용.)
+  4. **빌드 단순화** — 외부 의존성이 없어 `LLM_DISABLED`/`LLM=0` 컴파일 분기를 제거.
+     `chooseAIMove` 는 LLM 경로 성공/폴백을 `stderr` 로 출력(디버그).
+  5. `app/` 프록시 서버 + Unix 배경음악 폴백 안정화 (이전 작업).
+- `feat/#1-ascii-art-sprite` — 스프라이트/ASCII 아트 작업 브랜치 (별개).
 
 브랜치 성격이 다르므로, 프록시 서버 작업은 `feat/api-proxy-server` 기준으로 이어가는 것이 맞습니다.
 
