@@ -225,14 +225,14 @@ def test_max_tokens_over_cap_rejected():
 def test_system_plus_user_messages_ok():
     application = _make_app_with_upstream(_fake_upstream_ok)
     with TestClient(application) as c:
-        # llm_battle_line 이 만드는 system+user 2메시지 본문이 통과해야 한다.
+        # llm_choose_move 가 만드는 system+user 2메시지 본문이 통과해야 한다.
         body = json.dumps(
             {
                 "model": "gpt-4o-mini",
                 "max_tokens": 16,
                 "messages": [
-                    {"role": "system", "content": "너는 중계 아나운서다."},
-                    {"role": "user", "content": "피카츄가 백만볼트를 썼다."},
+                    {"role": "system", "content": "너는 포켓몬 배틀 AI다. 숫자만 출력."},
+                    {"role": "user", "content": "1.몸통박치기 2.백만볼트 3.번개"},
                 ],
             }
         ).encode("utf-8")

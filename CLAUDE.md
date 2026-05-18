@@ -48,10 +48,12 @@ make run      # 빌드 후 실행
 make clean    # 산출물 정리
 ```
 
-- 컴파일러: `cc` (gcc/clang 어느 쪽이든 c99 지원이면 됨)
+- 컴파일러: `cc` (gcc/clang 어느 쪽이든 c99 지원이면 됨). Windows 는 CMake 사용.
 - **외부 라이브러리 의존성 없음**. `make` 만 하면 빌드됩니다 (libcurl 등 설치 불필요).
-  - HTTP 전송은 POSIX 소켓(`<sys/socket.h>`, `<netdb.h>`)으로 구현 — 표준 POSIX 만 사용.
-  - 네이티브 Windows 는 winsock 이 달라 미지원 → WSL 권장, 또는 `make LLM=0` (스텁).
+  - HTTP 전송은 Berkeley 소켓으로 직접 구현. POSIX 와 Windows(winsock) 차이는
+    [llm/llm.c](llm/llm.c) 상단의 `#ifdef _WIN32` 플랫폼 계층에서 흡수하므로 함수
+    본문은 한 벌뿐 — "LLM 켠/끈 빌드" 같은 컴파일 분기는 없습니다.
+  - CMake 빌드는 Windows 에서 `ws2_32` 를 자동 링크합니다.
 
 ### 프록시 서버
 
@@ -75,21 +77,24 @@ PYTHONPATH=.. python -m pytest tests -q
 공개 API 는 [llm/llm.h](llm/llm.h) 참고.
 
 ```c
-#include "llm/llm.h"
+#include "llm.h"
 
 llm_init();
-char out[1024];
 
 /* 범용 호출 */
+char out[1024];
 if (llm_generate("한 줄 나레이션 만들어줘.", out, sizeof(out)) == 0)
     printf("%s\n", out);
 
-/* 배틀 중계 헬퍼 — 내부에서 중계 system 프롬프트를 붙여준다 */
-if (llm_battle_line("피카츄의 백만볼트가 꼬부기에 명중", out, sizeof(out)) == 0)
-    printf("%s\n", out);
+/* 기술 선택 헬퍼 — situation 에 상황+기술목록을 주면 1..N 숫자를 돌려준다.
+   battlelogic 의 chooseAIMove 가 이 함수를 쓴다. */
+int picked = llm_choose_move(situation, move_count);   /* 성공: 1..move_count, 실패: -1 */
 
 llm_cleanup();
 ```
+
+게임 연결: 적 AI 기술 선택([battlelogic.c](battlelogic/battlelogic.c) `chooseAIMove`)이
+`llm_choose_move` 를 호출합니다. LLM 이 1~N 숫자를 주면 그 기술을, 실패하면 무작위로 고릅니다.
 
 **전송은 평문 HTTP 만** 지원합니다 (소켓으로 직접 구현, TLS 미지원). 따라서 https
 엔드포인트(OpenAI 직격)는 못 부르고, `app/` 프록시를 평문 HTTP 로 경유하는 것이 기본입니다.
@@ -118,7 +123,8 @@ llm_cleanup();
 - API 키는 코드에 하드코딩하지 않는다
 - 응답 JSON 파싱은 OpenAI Chat Completions 포맷에 맞춘 단순 추출이다
 - 클라이언트가 공개 배포될 경우, 업스트림 키는 직접 넣지 말고 `app/` 프록시를 경유한다
-- 프롬프트 설계는 `llm/` 가 소유한다 (예: `llm_battle_line` 의 중계 system 프롬프트)
+- 프롬프트 설계는 `llm/` 가 소유한다 (예: `llm_choose_move` 의 기술 선택 system 프롬프트)
+- LLM 호출이 실패해도 게임 진행이 막히면 안 된다 — `chooseAIMove` 는 무작위로 폴백한다
 - 외부 의존성을 새로 끌어오지 않는다. 암호 같은 표준 알고리즘이 필요하면 검증된
   공개 도메인 코드를 `llm/` 에 그대로 vendoring 하고 머리말에 출처를 남긴다
 - 프록시 통신 규격의 단일 기준은 [docs/proxy-protocol.md](docs/proxy-protocol.md)

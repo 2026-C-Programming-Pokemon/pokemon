@@ -1,41 +1,7 @@
-/* getaddrinfo / struct addrinfo 등 POSIX 소켓 API 를 -std=c99 에서 노출시키기 위함. */
+/* getaddrinfo 등 POSIX 소켓 API 를 -std=c99 에서 노출시키기 위함 (Windows 에선 무시). */
 #define _POSIX_C_SOURCE 200112L
 
 #include "llm.h"
-
-/*
- * 모든 LLM 호출이 거치는 배틀 중계 system 프롬프트.
- * 직결/프록시 모드와 무관하게 llm_battle_line 이 이 지시문을 붙입니다.
- */
-#define LLM_BATTLE_SYSTEM \
-    "너는 1세대 포켓몬 배틀의 중계 아나운서다. " \
-    "주어진 배틀 상황을 한국어 한 문장으로 생동감 있고 간결하게 중계하라. " \
-    "포켓몬 이름, 기술 이름, 효과는 사실 그대로 두고 없는 사실을 지어내지 마라. " \
-    "출력은 따옴표 없이 한 문장, 60자 이내."
-
-#ifdef LLM_DISABLED
-
-/* 네트워크 코드 없이도 빌드되도록 한 스텁 구현. 게임은 폴백 메시지로 동작합니다. */
-
-int  llm_init(void)         { return 0; }
-void llm_cleanup(void)      { }
-int  llm_is_available(void) { return 0; }
-
-int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
-{
-    (void)prompt;
-    if (out_buffer != NULL && out_size > 0) out_buffer[0] = '\0';
-    return -1;
-}
-
-int llm_battle_line(const char *situation, char *out_buffer, size_t out_size)
-{
-    (void)situation;
-    if (out_buffer != NULL && out_size > 0) out_buffer[0] = '\0';
-    return -1;
-}
-
-#else
 
 #include <stdint.h>
 #include <stdio.h>
@@ -43,10 +9,30 @@ int llm_battle_line(const char *situation, char *out_buffer, size_t out_size)
 #include <string.h>
 #include <time.h>
 
-#include <netdb.h>          /* getaddrinfo */
-#include <sys/socket.h>     /* socket, connect, setsockopt */
-#include <sys/time.h>       /* struct timeval */
-#include <unistd.h>         /* close */
+/* ---------------------------------------------------------------------------
+ *  플랫폼별 소켓 계층.
+ *
+ *  HTTP 전송은 Berkeley 소켓으로 직접 구현합니다. Windows(winsock)와 POSIX 는
+ *  소켓 API 가 거의 같아, 차이 나는 부분(헤더 / 소켓 타입 / 닫기 함수 이름 /
+ *  라이브러리 초기화)만 여기서 한 번 흡수합니다. 덕분에 함수 본문은 한 벌만
+ *  두면 되고, "LLM 켠 빌드 / 끈 빌드" 같은 분기도 필요 없습니다.
+ *  (LLM 호출이 실패하면 호출 측이 런타임에 폴백하므로 컴파일 분기가 불필요.)
+ * ------------------------------------------------------------------------- */
+#ifdef _WIN32
+  #include <winsock2.h>
+  #include <ws2tcpip.h>
+  typedef SOCKET socket_t;
+  #define SOCKET_INVALID  INVALID_SOCKET
+  #define close_socket    closesocket
+#else
+  #include <netdb.h>          /* getaddrinfo */
+  #include <sys/socket.h>     /* socket, connect, setsockopt */
+  #include <sys/time.h>       /* struct timeval */
+  #include <unistd.h>         /* close */
+  typedef int socket_t;
+  #define SOCKET_INVALID  (-1)
+  #define close_socket    close
+#endif
 
 /* 외부 공개 도메인 암호 코드 (llm/sha256.*, llm/hmac_sha256.*). */
 #include "sha256.h"
@@ -314,10 +300,12 @@ static void make_nonce(char out[33])
 }
 
 /* ===========================================================================
- *  평문 HTTP 클라이언트 (POSIX 소켓)
+ *  평문 HTTP 클라이언트 (Berkeley 소켓)
  *
  *  libcurl 을 쓰지 않고 직접 구현합니다. 평문 HTTP 만 지원하며 HTTPS(TLS)는
  *  지원하지 않습니다 — 같은 머신/LAN 의 app/ 프록시를 호출하는 용도입니다.
+ *  소켓 타입/닫기 함수는 위의 플랫폼 계층(socket_t, close_socket)으로 흡수돼
+ *  Windows·POSIX 가 같은 본문을 씁니다.
  * ========================================================================= */
 
 /*
@@ -370,16 +358,34 @@ static int parse_http_url(const char *url,
 }
 
 /* fd 로 len 바이트를 끝까지 보냅니다. 성공 0, 실패 -1. */
-static int send_all(int fd, const char *data, size_t len)
+static int send_all(socket_t fd, const char *data, size_t len)
 {
     size_t sent = 0;
     while (sent < len) {
-        ssize_t n = send(fd, data + sent, len - sent, 0);
+        /* recv/send 반환형은 POSIX(ssize_t)·Windows(int)가 다르므로, 작은
+         * 버퍼만 다루는 이 코드에서는 int 로 충분하다. */
+        int n = (int)send(fd, data + sent, (int)(len - sent), 0);
         if (n <= 0) return -1;
         sent += (size_t)n;
     }
     return 0;
 }
+
+#ifdef _WIN32
+/* Windows 는 소켓을 쓰기 전에 winsock 을 초기화해야 한다. 최초 1회만 수행. */
+static int ensure_socket_lib(void)
+{
+    static int ready = 0;
+    if (!ready) {
+        WSADATA wsa;
+        if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+            return -1;
+        }
+        ready = 1;
+    }
+    return 0;
+}
+#endif
 
 /*
  * url 로 HTTP POST 를 보내고 응답 본문을 받아옵니다.
@@ -398,6 +404,12 @@ static int http_post(const char *url,
         return -1;
     }
 
+#ifdef _WIN32
+    if (ensure_socket_lib() != 0) {
+        return -1;
+    }
+#endif
+
     /* 1) 호스트 이름 해석. */
     struct addrinfo hints, *res = NULL;
     memset(&hints, 0, sizeof(hints));
@@ -408,23 +420,30 @@ static int http_post(const char *url,
     }
 
     /* 2) 소켓 생성 + 연결. */
-    int fd = -1;
+    socket_t fd = SOCKET_INVALID;
     for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
         fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (fd < 0) continue;
-        if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
-        close(fd);
-        fd = -1;
+        if (fd == SOCKET_INVALID) continue;
+        if (connect(fd, ai->ai_addr, (int)ai->ai_addrlen) == 0) break;
+        close_socket(fd);
+        fd = SOCKET_INVALID;
     }
     freeaddrinfo(res);
-    if (fd < 0) return -1;
+    if (fd == SOCKET_INVALID) return -1;
 
-    /* 송수신 타임아웃 — 서버가 멈춰도 게임이 영원히 대기하지 않도록. */
-    struct timeval tv;
-    tv.tv_sec  = LLM_SOCKET_TIMEOUT_S;
-    tv.tv_usec = 0;
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    /* 송수신 타임아웃 — 서버가 멈춰도 게임이 영원히 대기하지 않도록.
+     * 타임아웃 값 표현이 Windows(밀리초 DWORD)·POSIX(struct timeval)로 다르다. */
+#ifdef _WIN32
+    DWORD timeout = LLM_SOCKET_TIMEOUT_S * 1000;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout, sizeof(timeout));
+#else
+    struct timeval timeout;
+    timeout.tv_sec  = LLM_SOCKET_TIMEOUT_S;
+    timeout.tv_usec = 0;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout, sizeof(timeout));
+#endif
 
     /* 3) 요청 메시지 조립. */
     ByteBuffer req = { NULL, 0, 0 };
@@ -447,7 +466,7 @@ static int http_post(const char *url,
 
     if (ok != 0 || send_all(fd, req.data, req.len) != 0) {
         free(req.data);
-        close(fd);
+        close_socket(fd);
         return -1;
     }
     free(req.data);
@@ -456,18 +475,18 @@ static int http_post(const char *url,
     ByteBuffer resp = { NULL, 0, 0 };
     char chunk[4096];
     for (;;) {
-        ssize_t n = recv(fd, chunk, sizeof(chunk), 0);
+        int n = (int)recv(fd, chunk, (int)sizeof(chunk), 0);
         if (n > 0) {
             if (buf_append(&resp, chunk, (size_t)n) != 0) {
                 free(resp.data);
-                close(fd);
+                close_socket(fd);
                 return -1;
             }
         } else {
             break;  /* 0 = 정상 종료, <0 = 오류/타임아웃 */
         }
     }
-    close(fd);
+    close_socket(fd);
 
     if (resp.data == NULL) {
         return -1;
@@ -501,13 +520,20 @@ static int http_post(const char *url,
 
 int llm_init(void)
 {
-    /* POSIX 소켓은 전역 초기화가 필요 없습니다. API 호환을 위해 남겨둡니다. */
+#ifdef _WIN32
+    /* Windows 는 소켓 라이브러리 초기화가 필요하다. */
+    return ensure_socket_lib();
+#else
+    /* POSIX 는 소켓 라이브러리 초기화가 필요 없다. */
     return 0;
+#endif
 }
 
 void llm_cleanup(void)
 {
-    /* 정리할 전역 상태가 없습니다. */
+#ifdef _WIN32
+    WSACleanup();
+#endif
 }
 
 int llm_is_available(void)
@@ -609,13 +635,35 @@ int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
     return llm_chat(NULL, prompt, out_buffer, out_size);
 }
 
-int llm_battle_line(const char *situation, char *out_buffer, size_t out_size)
+int llm_choose_move(const char *situation, int move_count)
 {
-    if (situation == NULL) {
-        if (out_buffer != NULL && out_size > 0) out_buffer[0] = '\0';
+    if (situation == NULL || move_count < 1 || move_count > 9) {
         return -1;
     }
-    return llm_chat(LLM_BATTLE_SYSTEM, situation, out_buffer, out_size);
-}
 
-#endif /* LLM_DISABLED */
+    /* LLM 에게 "숫자 하나만" 출력하라고 강하게 지시하는 system 프롬프트.
+     * move_count 가 들어가야 하므로 매번 동적으로 만든다. */
+    char system_prompt[512];
+    snprintf(system_prompt, sizeof(system_prompt),
+        "너는 포켓몬 배틀의 AI 트레이너다. 주어진 상황에서 가장 효과적인 기술 "
+        "하나를 고른다. 반드시 1 부터 %d 사이의 숫자 하나만 출력하라. 설명, "
+        "기술 이름, 그 외 어떤 문자도 출력하지 마라. 예시 출력: 2",
+        move_count);
+
+    char reply[256];
+    if (llm_chat(system_prompt, situation, reply, sizeof(reply)) != 0) {
+        return -1;  /* 통신/응답 실패 → 호출 측이 폴백. */
+    }
+
+    /* 응답에서 처음 나오는 숫자 한 자리를 고른 기술 번호로 본다. */
+    for (const char *p = reply; *p != '\0'; p++) {
+        if (*p >= '1' && *p <= '9') {
+            int picked = *p - '0';
+            if (picked >= 1 && picked <= move_count) {
+                return picked;
+            }
+            return -1;  /* 범위 밖 숫자 → 실패로 간주. */
+        }
+    }
+    return -1;  /* 숫자가 없음 → 실패. */
+}

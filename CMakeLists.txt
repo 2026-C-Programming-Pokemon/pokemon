@@ -6,10 +6,6 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
-# LLM 호출 코드 포함 여부. 외부 라이브러리 의존성은 없습니다 (POSIX 소켓 HTTP).
-# OFF 면 llm 모듈을 스텁으로 컴파일합니다.
-option(POKEMON_ENABLE_LLM "Build with LLM support (POSIX-socket HTTP)" ON)
-
 add_executable(pokemon
     pokemon.c
     dogam/dogam.c
@@ -42,8 +38,9 @@ target_include_directories(pokemon PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/score
 )
 
-if(NOT POKEMON_ENABLE_LLM)
-    target_compile_definitions(pokemon PRIVATE LLM_DISABLED)
+# LLM 모듈의 HTTP 전송은 소켓을 쓴다. Windows 는 winsock 라이브러리 링크가 필요.
+if(WIN32)
+    target_link_libraries(pokemon PRIVATE ws2_32)
 endif()
 
 if(MSVC)

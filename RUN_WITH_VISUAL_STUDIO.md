@@ -9,16 +9,16 @@
 3. 상단 실행 대상이 `pokemon.exe`로 잡히면 그대로 실행합니다.
 4. 안 잡히면 메뉴에서 **Project > Configure Cache** 또는 CMake 구성을 새로고침합니다.
 
-아래 명령은 LLM 기능을 끈 상태(`POKEMON_ENABLE_LLM=OFF`)로 빌드하므로 키 설정 없이 실행됩니다.
-LLM 모듈의 HTTP 전송은 POSIX 소켓을 쓰므로 네이티브 Windows(MSVC)에서는 켤 수 없습니다.
-LLM 기능까지 쓰려면 아래 3) 의 리눅스/WSL 방식으로 빌드하세요.
+외부 라이브러리 설치는 필요 없습니다. LLM 모듈의 소켓 통신은 Windows(winsock)·
+POSIX 양쪽을 지원하며, CMake 가 Windows 에서 `ws2_32` 를 자동으로 링크합니다.
+LLM 설정이 없거나 호출이 실패하면 게임이 알아서 폴백하므로 키 없이도 실행됩니다.
 
 ## 2) VS Code에서 실행
 
 VS Code 터미널에서 아래 명령어를 입력합니다.
 
 ```powershell
-cmake -S . -B build -DPOKEMON_ENABLE_LLM=OFF
+cmake -S . -B build
 cmake --build build --config Debug
 .\build\Debug\pokemon.exe
 ```
@@ -32,7 +32,7 @@ cmake --build build --config Debug
 ## 3) 리눅스/WSL/Git Bash에서 실행
 
 ```bash
-cmake -S . -B build -DPOKEMON_ENABLE_LLM=OFF
+cmake -S . -B build
 cmake --build build
 ./build/pokemon
 ```
@@ -40,5 +40,5 @@ cmake --build build
 ## 참고
 
 - 이 프로젝트의 README에는 `make` 명령어가 있지만, Windows 초보자 기준으로는 CMake 방식이 더 편합니다.
-- LLM 모듈은 외부 라이브러리 의존성이 없지만 POSIX 소켓을 쓰므로, 네이티브 Windows 에서는
-  `POKEMON_ENABLE_LLM=OFF` 가 안전합니다. LLM 까지 쓰려면 WSL/리눅스에서 `ON` 으로 빌드하세요.
+- LLM 모듈은 외부 라이브러리 의존성이 없습니다. 게임 안에서 LLM 을 실제로 쓰려면
+  `LLM_BASE_URL` / `POKEMON_CLIENT_SECRET` 환경변수를 설정하세요(없어도 게임은 동작).

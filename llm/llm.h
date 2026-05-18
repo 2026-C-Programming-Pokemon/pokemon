@@ -53,14 +53,16 @@ int llm_is_available(void);
 int llm_generate(const char *prompt, char *out_buffer, size_t out_size);
 
 /*
- * 배틀 중계 헬퍼.
+ * 배틀 기술 선택 헬퍼.
  *
- * situation 은 "피카츄의 백만볼트가 꼬부기에게 명중, 효과는 굉장했다" 처럼
- * 사실만 적은 상황 서술입니다. 내부에서 중계 아나운서 system 프롬프트를 붙여
- * 호출하므로, 호출 측은 프롬프트 설계를 신경 쓸 필요가 없습니다.
+ * situation 은 현재 배틀 상황과 1번부터 move_count 번까지의 기술 목록을 적은,
+ * 사람이 읽을 수 있는 문자열입니다. 내부에서 "1~move_count 중 숫자 하나만
+ * 출력하라"는 system 프롬프트를 붙여 LLM 에 묻고, 응답에서 그 숫자를 파싱합니다.
  *
- * 성공 시 0, 실패 시 -1. 실패 시 호출 측은 situation 자체를 폴백으로 쓰면 됩니다.
+ * 성공 시 고른 기술 번호(1..move_count), 실패 시 -1 을 반환합니다.
+ * 실패하면(키 없음 / 통신 실패 / 응답 파싱 실패) 호출 측이 직접 무작위 선택
+ * 등으로 폴백해야 합니다.
  */
-int llm_battle_line(const char *situation, char *out_buffer, size_t out_size);
+int llm_choose_move(const char *situation, int move_count);
 
 #endif /* POKEMON_LLM_H */

@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "../pokemon.h"
+#include "llm.h"   /* AI 기술 선택을 LLM 에게 위임 (-Illm 경로) */
 
 int isFainted(BattlePokemon pokemon)
 {
@@ -818,35 +819,88 @@ int scoreStatusMove(BattlePokemon attacker, BattlePokemon defender, Move move)
     return score;
 }
 
-/* AI는 가장 큰 데미지를 내거나 유리한 보조 효과를 주는 기술을 선택합니다. */
+/* 포켓몬의 타입을 "불꽃" 또는 "물/비행" 같은 문자열로 buf 에 적습니다.
+ * type2 가 TYPE_NONE 이거나 type1 과 같으면 단일 타입으로 표기합니다. */
+static void formatTypeName(char *buf, size_t cap, PokemonType type1, PokemonType type2)
+{
+    if (type2 == TYPE_NONE || type2 == type1) {
+        snprintf(buf, cap, "%s", typeNames[type1]);
+    } else {
+        snprintf(buf, cap, "%s/%s", typeNames[type1], typeNames[type2]);
+    }
+}
+
+/*
+ * AI 기술 선택.
+ *
+ * 배틀 상황과 사용 가능한 기술 목록(1..moveCount)을 문자열로 만들어 LLM 에게
+ * 넘기고, LLM 이 고른 기술 번호를 받습니다. LLM 설정이 없거나 통신/응답 파싱에
+ * 실패하면 무작위로 기술을 고릅니다.
+ */
 Move chooseAIMove(BattlePokemon attacker, BattlePokemon defender)
 {
-    Move bestMove;
-    int bestScore = -1;
-
     if (attacker.moveCount == 0) {
         return getFallbackMove();
     }
 
-    bestMove = attacker.moves[0];
+    /* LLM 에게 줄 배틀 상황 + 기술 목록 문자열을 조립한다. */
+    char situation[1024];
+    char atkType[48];
+    char defType[48];
+    int n = 0;
+
+    formatTypeName(atkType, sizeof(atkType),
+                   attacker.pokemon.type1, attacker.pokemon.type2);
+    formatTypeName(defType, sizeof(defType),
+                   defender.pokemon.type1, defender.pokemon.type2);
+
+    n += snprintf(situation + n, sizeof(situation) - (size_t)n,
+        "내 포켓몬: %s (%s) HP %d/%d 상태:%s\n"
+        "상대 포켓몬: %s (%s) HP %d/%d 상태:%s\n"
+        "사용 가능한 기술:\n",
+        attacker.pokemon.name, atkType,
+        attacker.currentHp, attacker.pokemon.hp,
+        getStatusName(attacker.status),
+        defender.pokemon.name, defType,
+        defender.currentHp, defender.pokemon.hp,
+        getStatusName(defender.status));
+    if (n < 0 || n >= (int)sizeof(situation)) {
+        n = (int)sizeof(situation) - 1;
+    }
 
     for (int i = 0; i < attacker.moveCount; i++) {
         Move move = attacker.moves[i];
-        int score;
+        int written;
 
         if (move.power > 0) {
-            score = calculateDamage(attacker, defender, move);
+            const char *category =
+                (move.category == MOVE_PHYSICAL) ? "물리" : "특수";
+            written = snprintf(situation + n, sizeof(situation) - (size_t)n,
+                "%d. %s (%s, %s, 위력 %d)\n",
+                i + 1, move.name, typeNames[move.type], category, move.power);
         } else {
-            score = scoreStatusMove(attacker, defender, move);
+            written = snprintf(situation + n, sizeof(situation) - (size_t)n,
+                "%d. %s (%s, 변화기)\n",
+                i + 1, move.name, typeNames[move.type]);
         }
-
-        if (score > bestScore) {
-            bestScore = score;
-            bestMove = move;
+        if (written < 0) {
+            break;
+        }
+        n += written;
+        if (n >= (int)sizeof(situation)) {
+            n = (int)sizeof(situation) - 1;
+            break;
         }
     }
 
-    return bestMove;
+    /* LLM 에게 물어본다. 1..moveCount 범위의 답이면 그 기술을 쓴다. */
+    int picked = llm_choose_move(situation, attacker.moveCount);
+    if (picked >= 1 && picked <= attacker.moveCount) {
+        return attacker.moves[picked - 1];
+    }
+
+    /* LLM 이 없거나 응답을 못 읽으면 무작위로 고른다. */
+    return attacker.moves[rand() % attacker.moveCount];
 }
 
 /* 1대1 전투 상태를 간단히 출력합니다. */
