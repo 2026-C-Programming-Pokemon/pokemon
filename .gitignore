@@ -11,3 +11,10 @@ cmake_install.cmake
 *.exe
 *.ilk
 *.pdb
+
+# Python (app/)
+__pycache__/
+*.py[cod]
+.venv/
+app/.env
+.pytest_cache/
