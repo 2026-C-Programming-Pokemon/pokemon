@@ -5,10 +5,13 @@
     signature = HMAC_SHA256(shared_secret, canonical)  # hex 인코딩
 
 헤더 (모두 필수):
+    X-Pokemon-Protocol     통신 규격 버전 (현재 "1")
     X-Pokemon-Client-Id    클라이언트 식별자 (예: "pokemon-c-client/1.0")
     X-Pokemon-Timestamp    unix epoch 초 (문자열)
     X-Pokemon-Nonce        충분히 무작위인 nonce (16바이트 이상 hex 권장)
     X-Pokemon-Signature    위 hex(HMAC-SHA256) 값
+
+전체 규격은 docs/proxy-protocol.md 참고.
 """
 from __future__ import annotations
 
@@ -19,10 +22,14 @@ import time
 from collections import OrderedDict, deque
 from dataclasses import dataclass
 
+HEADER_PROTOCOL = "X-Pokemon-Protocol"
 HEADER_CLIENT_ID = "X-Pokemon-Client-Id"
 HEADER_TIMESTAMP = "X-Pokemon-Timestamp"
 HEADER_NONCE = "X-Pokemon-Nonce"
 HEADER_SIGNATURE = "X-Pokemon-Signature"
+
+# 현재 통신 규격 버전. 비호환 변경 시에만 올린다 (docs/proxy-protocol.md §7).
+PROTOCOL_VERSION = "1"
 
 
 @dataclass(frozen=True)

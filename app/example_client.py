@@ -17,7 +17,7 @@ import time
 
 import httpx
 
-from .security import compute_signature
+from .security import PROTOCOL_VERSION, compute_signature
 
 
 def make_headers(secret: str, body: bytes, client_id: str) -> dict[str, str]:
@@ -27,6 +27,7 @@ def make_headers(secret: str, body: bytes, client_id: str) -> dict[str, str]:
     return {
         "Content-Type": "application/json",
         "User-Agent": "pokemon-c-client/0.1",
+        "X-Pokemon-Protocol": PROTOCOL_VERSION,
         "X-Pokemon-Client-Id": client_id,
         "X-Pokemon-Timestamp": ts,
         "X-Pokemon-Nonce": nonce,

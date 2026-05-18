@@ -9,7 +9,9 @@
 3. 상단 실행 대상이 `pokemon.exe`로 잡히면 그대로 실행합니다.
 4. 안 잡히면 메뉴에서 **Project > Configure Cache** 또는 CMake 구성을 새로고침합니다.
 
-이 버전은 기본적으로 LLM 기능을 끈 상태로 빌드되므로 OpenAI API 키나 libcurl 없이 실행됩니다.
+아래 명령은 LLM 기능을 끈 상태(`POKEMON_ENABLE_LLM=OFF`)로 빌드하므로 키 설정 없이 실행됩니다.
+LLM 모듈의 HTTP 전송은 POSIX 소켓을 쓰므로 네이티브 Windows(MSVC)에서는 켤 수 없습니다.
+LLM 기능까지 쓰려면 아래 3) 의 리눅스/WSL 방식으로 빌드하세요.
 
 ## 2) VS Code에서 실행
 
@@ -38,4 +40,5 @@ cmake --build build
 ## 참고
 
 - 이 프로젝트의 README에는 `make` 명령어가 있지만, Windows 초보자 기준으로는 CMake 방식이 더 편합니다.
-- LLM 기능을 켜려면 `POKEMON_ENABLE_LLM=ON`과 libcurl 설정이 필요합니다. 지금 과제/시연용 실행은 OFF가 안전합니다.
+- LLM 모듈은 외부 라이브러리 의존성이 없지만 POSIX 소켓을 쓰므로, 네이티브 Windows 에서는
+  `POKEMON_ENABLE_LLM=OFF` 가 안전합니다. LLM 까지 쓰려면 WSL/리눅스에서 `ON` 으로 빌드하세요.

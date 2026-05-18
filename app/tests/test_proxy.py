@@ -77,6 +77,7 @@ def _signed_headers(body: bytes, ts: int | None = None, nonce: str | None = None
     return {
         "Content-Type": "application/json",
         "User-Agent": "pokemon-c-client/0.1 test",
+        "X-Pokemon-Protocol": "1",
         "X-Pokemon-Client-Id": "pokemon-c-client/0.1",
         "X-Pokemon-Timestamp": ts_str,
         "X-Pokemon-Nonce": n,
@@ -138,16 +139,105 @@ def test_missing_signature_rejected():
     application = _make_app_with_upstream(_fake_upstream_ok)
     with TestClient(application) as c:
         body = _body()
+        # 프로토콜 헤더는 갖췄지만 서명 헤더가 없는 경우.
         r = c.post(
             "/v1/chat/completions",
             content=body,
             headers={
                 "Content-Type": "application/json",
                 "User-Agent": "pokemon-c-client/0.1",
+                "X-Pokemon-Protocol": "1",
             },
         )
         assert r.status_code == 401
         assert r.json()["error"]["code"] == "missing_signature_headers"
+
+
+def test_missing_protocol_header_rejected():
+    application = _make_app_with_upstream(_fake_upstream_ok)
+    with TestClient(application) as c:
+        body = _body()
+        headers = _signed_headers(body)
+        del headers["X-Pokemon-Protocol"]
+        r = c.post("/v1/chat/completions", content=body, headers=headers)
+        assert r.status_code == 401
+        assert r.json()["error"]["code"] == "bad_protocol_version"
+
+
+def test_wrong_protocol_version_rejected():
+    application = _make_app_with_upstream(_fake_upstream_ok)
+    with TestClient(application) as c:
+        body = _body()
+        headers = _signed_headers(body)
+        headers["X-Pokemon-Protocol"] = "999"
+        r = c.post("/v1/chat/completions", content=body, headers=headers)
+        assert r.status_code == 401
+        assert r.json()["error"]["code"] == "bad_protocol_version"
+
+
+def test_unexpected_field_rejected():
+    application = _make_app_with_upstream(_fake_upstream_ok)
+    with TestClient(application) as c:
+        # 규격에 없는 필드(tools)를 끼워 넣으면 거절돼야 한다.
+        body = json.dumps(
+            {
+                "model": "gpt-4o-mini",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "hi"}],
+                "tools": [{"type": "function"}],
+            }
+        ).encode("utf-8")
+        r = c.post("/v1/chat/completions", content=body, headers=_signed_headers(body))
+        assert r.status_code == 400
+        assert r.json()["error"]["code"] == "unexpected_field"
+
+
+def test_bad_message_role_rejected():
+    application = _make_app_with_upstream(_fake_upstream_ok)
+    with TestClient(application) as c:
+        body = json.dumps(
+            {
+                "model": "gpt-4o-mini",
+                "max_tokens": 16,
+                "messages": [{"role": "root", "content": "hi"}],
+            }
+        ).encode("utf-8")
+        r = c.post("/v1/chat/completions", content=body, headers=_signed_headers(body))
+        assert r.status_code == 400
+        assert r.json()["error"]["code"] == "bad_messages"
+
+
+def test_max_tokens_over_cap_rejected():
+    application = _make_app_with_upstream(_fake_upstream_ok)
+    with TestClient(application) as c:
+        body = json.dumps(
+            {
+                "model": "gpt-4o-mini",
+                "max_tokens": 999999,
+                "messages": [{"role": "user", "content": "hi"}],
+            }
+        ).encode("utf-8")
+        r = c.post("/v1/chat/completions", content=body, headers=_signed_headers(body))
+        assert r.status_code == 400
+        assert r.json()["error"]["code"] == "bad_max_tokens"
+
+
+def test_system_plus_user_messages_ok():
+    application = _make_app_with_upstream(_fake_upstream_ok)
+    with TestClient(application) as c:
+        # llm_battle_line 이 만드는 system+user 2메시지 본문이 통과해야 한다.
+        body = json.dumps(
+            {
+                "model": "gpt-4o-mini",
+                "max_tokens": 16,
+                "messages": [
+                    {"role": "system", "content": "너는 중계 아나운서다."},
+                    {"role": "user", "content": "피카츄가 백만볼트를 썼다."},
+                ],
+            }
+        ).encode("utf-8")
+        r = c.post("/v1/chat/completions", content=body, headers=_signed_headers(body))
+        assert r.status_code == 200, r.text
 
 
 def test_stale_timestamp_rejected():

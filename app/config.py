@@ -69,6 +69,13 @@ class Settings:
     log_level: str = "INFO"
     require_signature: bool = True
 
+    # 통신 규격 (docs/proxy-protocol.md) 강제.
+    expected_protocol_version: str = "1"
+    require_protocol_header: bool = True
+    strict_body_schema: bool = True
+    max_completion_tokens: int = 1024
+    max_messages: int = 16
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -94,4 +101,9 @@ def get_settings() -> Settings:
         trust_x_forwarded_for=_env_bool("TRUST_X_FORWARDED_FOR", False),
         log_level=_env_str("LOG_LEVEL", "INFO").upper(),
         require_signature=_env_bool("REQUIRE_SIGNATURE", True),
+        expected_protocol_version=_env_str("EXPECTED_PROTOCOL_VERSION", "1"),
+        require_protocol_header=_env_bool("REQUIRE_PROTOCOL_HEADER", True),
+        strict_body_schema=_env_bool("STRICT_BODY_SCHEMA", True),
+        max_completion_tokens=_env_int("MAX_COMPLETION_TOKENS", 1024),
+        max_messages=_env_int("MAX_MESSAGES", 16),
     )

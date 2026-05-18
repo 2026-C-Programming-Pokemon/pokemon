@@ -4,17 +4,15 @@
     GET  /healthz                       → liveness 체크
     POST /v1/chat/completions           → 업스트림으로 포워딩 (OpenAI 호환)
 
-상세 요청 검증 순서:
+상세 요청 검증 순서 (docs/proxy-protocol.md §5):
     1. Content-Length / 본문 크기 캡
     2. (옵션) User-Agent prefix 체크
-    3. 시그니처 헤더 4종 존재 확인
-    4. 타임스탬프 freshness window 검증
-    5. nonce 리플레이 검증
-    6. HMAC 서명 일치 검증
-    7. 클라이언트 ID 화이트리스트 (옵션)
-    8. per-IP / per-client rate limit
-    9. JSON 파싱 + (옵션) 모델 화이트리스트
-   10. 업스트림 포워딩, 응답 그대로 반환 (stream 도 지원)
+    3. X-Pokemon-Protocol 버전 일치 확인
+    4. 시그니처 헤더 4종 존재 + freshness + nonce + HMAC 검증
+    5. 클라이언트 ID 화이트리스트 (옵션)
+    6. per-IP / per-client rate limit
+    7. JSON 파싱 + 본문 엄격 스키마 검증 + 모델 화이트리스트
+    8. 업스트림 포워딩, 응답 그대로 반환 (stream 도 지원)
 """
 from __future__ import annotations
 
@@ -29,9 +27,11 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from .config import Settings, get_settings
+from .schema import validate_chat_body
 from .security import (
     HEADER_CLIENT_ID,
     HEADER_NONCE,
+    HEADER_PROTOCOL,
     HEADER_SIGNATURE,
     HEADER_TIMESTAMP,
     NonceCache,
@@ -165,7 +165,19 @@ async def _handle_chat_completions(request: Request, app: FastAPI) -> Response:
             logger.info("ua_mismatch ip=%s ua=%r", ip, ua[:64])
             return _err(403, "user_agent_rejected", "unexpected user-agent")
 
-    # 3-6) 서명 검증.
+    # 3) 프로토콜 버전 헤더. 규격 외 클라이언트를 서명 검증 전에 빠르게 거른다.
+    if settings.require_protocol_header:
+        proto = request.headers.get(HEADER_PROTOCOL, "")
+        if proto != settings.expected_protocol_version:
+            logger.info("protocol_reject ip=%s proto=%r", ip, proto[:16])
+            return _err(
+                401,
+                "bad_protocol_version",
+                f"unsupported protocol version (expected "
+                f"{settings.expected_protocol_version})",
+            )
+
+    # 4) 서명 검증.
     if settings.require_signature:
         sig_err = _verify_signature(request, body, settings, nonce_cache)
         if sig_err is not None:
@@ -173,12 +185,12 @@ async def _handle_chat_completions(request: Request, app: FastAPI) -> Response:
             logger.info("sig_reject ip=%s code=%s", ip, code)
             return _err(status, code, message)
 
-    # 7) 클라이언트 ID 화이트리스트 (옵션).
+    # 5) 클라이언트 ID 화이트리스트 (옵션).
     client_id = request.headers.get(HEADER_CLIENT_ID, "")
     if settings.allowed_client_ids and client_id not in settings.allowed_client_ids:
         return _err(403, "client_id_rejected", "client id not allowed")
 
-    # 8) 레이트리밋.
+    # 6) 레이트리밋.
     now = time.time()
     if not ip_limiter.hit(ip, now=now):
         return _err(429, "rate_limited_ip", "too many requests from this IP")
@@ -186,13 +198,24 @@ async def _handle_chat_completions(request: Request, app: FastAPI) -> Response:
     if not client_limiter.hit(rate_key, now=now):
         return _err(429, "rate_limited_client", "too many requests for this client")
 
-    # 9) JSON 파싱 + 모델 화이트리스트.
+    # 7) JSON 파싱 + 본문 엄격 스키마 검증 + 모델 화이트리스트.
     try:
         payload = json.loads(body)
     except json.JSONDecodeError:
         return _err(400, "bad_json", "request body must be valid json")
     if not isinstance(payload, dict):
         return _err(400, "bad_json", "request body must be a json object")
+
+    if settings.strict_body_schema:
+        schema_err = validate_chat_body(
+            payload,
+            max_messages=settings.max_messages,
+            max_completion_tokens=settings.max_completion_tokens,
+        )
+        if schema_err is not None:
+            status, code, message = schema_err
+            logger.info("schema_reject ip=%s code=%s", ip, code)
+            return _err(status, code, message)
 
     model = payload.get("model")
     if settings.allowed_models:
@@ -201,7 +224,7 @@ async def _handle_chat_completions(request: Request, app: FastAPI) -> Response:
 
     is_stream = bool(payload.get("stream"))
 
-    # 10) 포워딩.
+    # 8) 포워딩.
     if not settings.upstream_api_key:
         return _err(503, "upstream_unconfigured", "upstream key not configured")
 

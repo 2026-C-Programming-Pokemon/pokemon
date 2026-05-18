@@ -15,11 +15,18 @@
   - [score/](score/): 점수/리더보드 저장
 - 프록시 서버:
   - [app/](app/): FastAPI 로 구현된 OpenAI 호환 `/v1/chat/completions` 프록시
-  - 업스트림 API 키 은닉 + HMAC/timestamp/nonce/rate-limit 보호 목적
+  - 업스트림 API 키 은닉 + HMAC/timestamp/nonce/rate-limit + 프로토콜 버전 +
+    본문 엄격 스키마 검증으로 "규격에 맞는 요청만" 통과
+- 통신 규격:
+  - [docs/proxy-protocol.md](docs/proxy-protocol.md) — 클라이언트/프록시 공통 단일 기준
 - 스프라이트 변환 도구:
   - [tools/ascii_converter/](tools/ascii_converter/) — PNG 를 유니코드 ASCII 아트로 변환
 - 외부 LLM 호출 모듈:
-  - [llm/](llm/) — libcurl 로 OpenAI 호환 Chat Completions API 호출
+  - [llm/](llm/) — OpenAI 호환 Chat Completions 호출. **외부 라이브러리 의존성 없음**:
+    HTTP 전송은 POSIX 소켓으로 직접 구현(평문 HTTP 만), HMAC 서명은 공개 도메인 코드 사용.
+  - [llm/llm.c](llm/llm.c) — 직접 작성: 소켓 HTTP 클라이언트, 프롬프트 조립, 서명 부착.
+  - [llm/sha256.{c,h}](llm/), [llm/hmac_sha256.{c,h}](llm/) — **외부 공개 도메인(Unlicense)
+    코드를 그대로 가져온 것**. 각 파일 머리말에 출처 URL/커밋이 적혀 있음. 직접 작성 아님.
 
 ## 현재 브랜치 컨텍스트
 
@@ -42,10 +49,9 @@ make clean    # 산출물 정리
 ```
 
 - 컴파일러: `cc` (gcc/clang 어느 쪽이든 c99 지원이면 됨)
-- 의존성: `libcurl` (LLM 활성 빌드 시)
-  - Debian/Ubuntu: `apt-get install libcurl4-openssl-dev build-essential`
-  - Alpine: `apk add curl-dev build-base`
-  - macOS: 시스템 기본 포함
+- **외부 라이브러리 의존성 없음**. `make` 만 하면 빌드됩니다 (libcurl 등 설치 불필요).
+  - HTTP 전송은 POSIX 소켓(`<sys/socket.h>`, `<netdb.h>`)으로 구현 — 표준 POSIX 만 사용.
+  - 네이티브 Windows 는 winsock 이 달라 미지원 → WSL 권장, 또는 `make LLM=0` (스텁).
 
 ### 프록시 서버
 
@@ -73,26 +79,49 @@ PYTHONPATH=.. python -m pytest tests -q
 
 llm_init();
 char out[1024];
-if (llm_generate("한 줄 나레이션 만들어줘.", out, sizeof(out)) == 0) {
+
+/* 범용 호출 */
+if (llm_generate("한 줄 나레이션 만들어줘.", out, sizeof(out)) == 0)
     printf("%s\n", out);
-}
+
+/* 배틀 중계 헬퍼 — 내부에서 중계 system 프롬프트를 붙여준다 */
+if (llm_battle_line("피카츄의 백만볼트가 꼬부기에 명중", out, sizeof(out)) == 0)
+    printf("%s\n", out);
+
 llm_cleanup();
 ```
+
+**전송은 평문 HTTP 만** 지원합니다 (소켓으로 직접 구현, TLS 미지원). 따라서 https
+엔드포인트(OpenAI 직격)는 못 부르고, `app/` 프록시를 평문 HTTP 로 경유하는 것이 기본입니다.
+
+동작 모드 두 가지:
+
+- **프록시 모드 (기본/권장)**: `POKEMON_CLIENT_SECRET` 이 설정되면 자동 활성화. `app/`
+  프록시 통신 규격에 맞춰 HMAC 서명 헤더를 붙임. 서명은 공개 도메인 SHA256/HMAC
+  코드(`llm/sha256.*`, `llm/hmac_sha256.*`)로 계산하며 `app/security.py` 와 동일 결과.
+- **직결 모드**: 로컬 Ollama 같은 OpenAI 호환 **평문 HTTP** 엔드포인트를 직접 호출.
+  `OPENAI_API_KEY` 가 있으면 Authorization 으로 보냄.
 
 런타임 설정 (환경 변수):
 
 | 변수 | 필수 | 기본값 | 설명 |
 |---|---|---|---|
-| `OPENAI_API_KEY` | yes | - | 기본 OpenAI 직결 모드에서 필요 |
-| `LLM_BASE_URL` | no | `https://api.openai.com/v1/chat/completions` | OpenAI 호환 엔드포인트. 자체 프록시/로컬 백엔드 연결 가능 |
+| `LLM_BASE_URL` | no | 로컬 프록시 | OpenAI 호환 엔드포인트 (`http://` 만). 프록시 모드면 프록시 URL |
 | `LLM_MODEL` | no | `gpt-4o-mini` | 사용할 모델 ID |
+| `POKEMON_CLIENT_SECRET` | 프록시 모드 | - | 설정 시 프록시 모드 + HMAC 서명 활성화 |
+| `POKEMON_CLIENT_ID` | no | `pokemon-c-client/1.0` | 클라이언트 식별자 |
+| `OPENAI_API_KEY` | 직결 모드 | - | 직결 모드에서 Authorization 으로 사용 |
 
 설계 원칙:
 
 - LLM 호출 실패는 게임을 멈추지 않는다
 - API 키는 코드에 하드코딩하지 않는다
 - 응답 JSON 파싱은 OpenAI Chat Completions 포맷에 맞춘 단순 추출이다
-- 클라이언트가 공개 배포될 경우, 업스트림 키는 직접 넣지 말고 `app/` 프록시를 경유하는 방향이 우선이다
+- 클라이언트가 공개 배포될 경우, 업스트림 키는 직접 넣지 말고 `app/` 프록시를 경유한다
+- 프롬프트 설계는 `llm/` 가 소유한다 (예: `llm_battle_line` 의 중계 system 프롬프트)
+- 외부 의존성을 새로 끌어오지 않는다. 암호 같은 표준 알고리즘이 필요하면 검증된
+  공개 도메인 코드를 `llm/` 에 그대로 vendoring 하고 머리말에 출처를 남긴다
+- 프록시 통신 규격의 단일 기준은 [docs/proxy-protocol.md](docs/proxy-protocol.md)
 
 ## 배경음악 관련 메모
 
@@ -105,7 +134,9 @@ llm_cleanup();
 
 ## 프록시 서버 작업 원칙
 
-- `app/README.md` 를 먼저 읽고 맞춰서 수정할 것
+- `app/README.md` 와 `docs/proxy-protocol.md` 를 먼저 읽고 맞춰서 수정할 것
+- 통신 규격(헤더 집합, 서명 canonical, 본문 스키마)을 바꾸면 `docs/proxy-protocol.md`,
+  `app/` (security/schema/config), `llm/llm.c` 를 함께 고치고 버전을 검토할 것
 - OpenAI 호환 요청/응답 형태를 함부로 깨지 말 것
 - 보안 관련 기본값은 보수적으로 유지할 것
   - 예: `TRUST_X_FORWARDED_FOR=false` 기본 유지
