@@ -2,4 +2,12 @@ pokemon
 *.o
 *.dSYM/
 .env
-
+out/
+.vs/
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+*.exe
+*.ilk
+*.pdb
