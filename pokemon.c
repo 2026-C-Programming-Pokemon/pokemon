@@ -227,6 +227,7 @@ static void flushInputLine(void)
     while ((ch = getchar()) != '\n' && ch != EOF) {}
 }
 
+
 static void playMusic(const char *path, float volume)
 {
     if (volume <= 0.0f) {
