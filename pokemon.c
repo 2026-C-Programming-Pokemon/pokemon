@@ -207,7 +207,17 @@ static void configureConsole(void)
         }
     }
 #else
+    /* 먼저 환경 기본 로케일을 적용한다. 단 개발컨테이너 등에서는 LANG 이 비어
+       있어 C/POSIX 로케일이 잡히는데, 그러면 mbrtowc/wcwidth 가 UTF-8 을 못 읽어
+       박스 테두리·한글 폭 계산이 깨진다. 그 경우 UTF-8 로케일을 명시적으로 강제. */
     setlocale(LC_ALL, "");
+    if (MB_CUR_MAX <= 1) {
+        if (setlocale(LC_ALL, "C.UTF-8") == NULL &&
+            setlocale(LC_ALL, "C.utf8") == NULL &&
+            setlocale(LC_ALL, "en_US.UTF-8") == NULL) {
+            setlocale(LC_ALL, "");  /* UTF-8 로케일이 하나도 없으면 원래대로 폴백 */
+        }
+    }
 #endif
 }
 
