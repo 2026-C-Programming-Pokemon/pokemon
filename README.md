@@ -13,6 +13,13 @@ make run          # 빌드 + 실행
 make clean        # 산출물 정리
 ```
 
+## 배경음악
+
+시작 화면에서는 macOS에서 `/Users/yjj/Downloads/02 - Title Screen.flac`을 재생합니다.
+게임 본편에서는 macOS에서 `sound/bgm.mp3`, Windows에서 `sound/bgm.wav`를 사용합니다.
+
+기본 음악 파일이 없으면 아무 것도 출력되지 않고 게임은 정상 실행됩니다.
+
 ## 처음 한 번 (LLM 켜고 쓸 때)
 
 ```sh
@@ -35,6 +42,11 @@ make run
 
 ## 구조
 
-- [pokemon.c](pokemon.c) — 게임 본체 (1세대 81마리 + 기술 + 배틀 로직).
+- [pokemon.c](pokemon.c) — 실행 화면, 입력, `main`.
+- [pokemon.h](pokemon.h) — 공용 타입, 상수, 함수 선언.
+- [dogam/](dogam/) — 포켓몬 도감 데이터, 타입 상성, 기본 능력치 계산.
+- [skill/](skill/) — 기술 후보/고정 기술 데이터, 기술 배치.
+- [battlelogic/](battlelogic/) — 데미지, 상태이상, 턴 진행, AI 기술 선택.
+- [entry/](entry/) — 플레이어/상대 트레이너 엔트리 구성.
 - [llm/](llm/) — LLM 호출 모듈. 현재 OpenAI Chat Completions. `LLM_DISABLED` 매크로로 스텁 빌드 가능 (Ollama / 다른 공급자 붙일 때 이 인터페이스만 유지).
 - [tools/ascii_converter/](tools/ascii_converter/) — PNG → 유니코드 ASCII 변환기 (Python).
