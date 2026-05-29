@@ -1,64 +1,60 @@
 # pokemon
 
-C 로 만든 1세대 포켓몬 TUI 배틀 프로젝트입니다.
+C 로 만든 1세대 포켓몬 콘솔 배틀 게임.
 
-## 빌드 / 실행
+## 실행하기
 
-```sh
-make              # 빌드 (LLM 포함, libcurl 필요)
-make LLM=0        # 빌드 (LLM 없이, 의존성 없음)
-make run          # 빌드 + 실행
-make clean        # 산출물 정리
+### Windows
+
+Visual Studio 2022 (C++ 개발 워크로드) 만 깔려 있으면 됩니다.
+
+```powershell
+cmake -S . -B build
+cmake --build build --config Release
+.\build\Release\pokemon.exe
 ```
 
-LLM 쪽은 OpenAI 호환 `/v1/chat/completions` 엔드포인트를 바라봅니다.
-기본값은 OpenAI지만, `LLM_BASE_URL` 로 Ollama 등 자체 호환 백엔드를 붙일 수 있습니다.
+또는 Visual Studio 에서 폴더 열고 그대로 실행.
 
-## 게임 LLM 설정
+### macOS / Linux
 
 ```sh
-cp .env.example .env      # 열어서 OPENAI_API_KEY 채우기
-sudo apt install -y libcurl4-openssl-dev   # Debian/Ubuntu 기준
 make run
 ```
 
-다른 OS 의 libcurl 패키지:
-- Alpine: `curl-dev`
-- Fedora: `libcurl-devel`
-- macOS: 기본 포함
-- Windows: WSL 권장
+## 조작
 
-`.env` 대신 `export OPENAI_API_KEY=sk-...` 로 넣어도 됩니다.
-키가 없거나 호출이 실패하면 호출 측에서 폴백 처리해야 합니다.
+- 번호 키로 메뉴 / 기술 선택
+- 사천왕을 차례로 쓰러뜨리면 클리어
 
-| 변수 | 기본값 | 설명 |
-|---|---|---|
-| `OPENAI_API_KEY` | - | OpenAI 사용 시 필수. 로컬 백엔드면 비울 수 있음. |
-| `LLM_BASE_URL` | `https://api.openai.com/v1/chat/completions` | OpenAI 호환 엔드포인트. 예: `http://localhost:11434/v1/chat/completions` |
-| `LLM_MODEL` | `gpt-4o-mini` | 모델 ID |
-| `POKEMON_LLM_AI` | - | `1` 로 설정 시 상대 트레이너의 기술 선택을 LLM 에게 맡김 (실패시 휴리스틱 폴백) |
-| `LLM_TIMEOUT_MS` | `30000` | LLM 호출 타임아웃 (ms). 배틀 중엔 짧게 잡는 편이 좋음 |
+## AI 를 LLM 한테 맡기기 (선택)
 
-[.env.example](.env.example) 에 OpenAI / Ollama 백엔드 템플릿이 있습니다.
+상대 트레이너의 기술 선택을 ChatGPT 같은 LLM 에 맡길 수 있습니다.
+설정 안 하면 기본 AI 로 동작합니다.
 
-## 배경음악 메모
+1. `.env.example` 을 복사해서 `.env` 만들고 `OPENAI_API_KEY` 채우기
+2. 실행 전에 `POKEMON_LLM_AI=1` 환경변수 켜기
 
-- Windows: PowerShell `MediaPlayer` 기반으로 루프 재생
-- Unix/macOS: 사용 가능한 플레이어를 순서대로 탐색해서 재생
-  - `ffplay` → `mpv` → `mpg123` → `cvlc` / `vlc`
-  - macOS 에서만 `afplay` 폴백 사용
-- **플레이어가 하나도 없으면 음악은 조용히 비활성화됩니다.**
-- 없는 플레이어를 무한 재시도해서 CPU 를 태우던 문제를 방지하도록 안정화했습니다.
+| 변수 | 설명 |
+|---|---|
+| `OPENAI_API_KEY` | OpenAI 키 |
+| `POKEMON_LLM_AI` | `1` 이면 LLM 이 기술 선택 |
+| `LLM_BASE_URL` | OpenAI 말고 Ollama 등 다른 백엔드 쓰고 싶을 때 |
+| `LLM_MODEL` | 기본 `gpt-4o-mini` |
+| `LLM_TIMEOUT_MS` | 한 턴 기다리는 최대 시간 (ms) |
 
-## 구조
+LLM 호출이 실패하면 자동으로 기본 AI 로 돌아갑니다.
 
-- [pokemon.c](pokemon.c) — 실행 화면, 입력, 음악 재생, `main`
-- [pokemon.h](pokemon.h) — 공용 타입, 상수, 함수 선언
-- [dogam/](dogam/) — 포켓몬 도감 데이터, 타입 상성, 기본 능력치 계산
-- [skill/](skill/) — 기술 후보/고정 기술 데이터, 기술 배치
-- [battlelogic/](battlelogic/) — 데미지, 상태이상, 턴 진행, AI 기술 선택
-- [entry/](entry/) — 플레이어/상대 트레이너 엔트리 구성
-- [llm/](llm/) — libcurl 기반 LLM 호출 모듈 (OpenAI 호환)
-- [score/](score/) — 리더보드/점수 저장
-- [sound/](sound/) — 배경음악 파일
-- [tools/ascii_converter/](tools/ascii_converter/) — PNG → 유니코드 ASCII 변환기 (Python)
+> macOS/Linux 에서 LLM 켜고 빌드하려면 `libcurl` 이 필요합니다.
+> (`brew install curl` / `apt install libcurl4-openssl-dev`)
+
+## 폴더
+
+- `pokemon.c` / `pokemon.h` — 메인 루프, 입출력
+- `dogam/` — 포켓몬 도감, 타입 상성
+- `skill/` — 기술 데이터
+- `battlelogic/` — 데미지, 상태이상, AI
+- `entry/` — 트레이너 구성
+- `llm/` — LLM 호출
+- `score/` — 점수판
+- `sound/` — 배경음악
