@@ -29,4 +29,11 @@ int llm_is_available(void);
  */
 int llm_generate(const char *prompt, char *out_buffer, size_t out_size);
 
+/*
+ * 배틀 AI 전용: 프롬프트를 보내고 응답에서 "1..move_count" 범위의 첫 정수를
+ * 뽑아 0-based 인덱스로 *out_index 에 채워 넣습니다.
+ * 성공 시 0, 호출/파싱 실패 시 -1. 호출 측은 -1 일 때 휴리스틱으로 폴백합니다.
+ */
+int llm_pick_move_index(const char *prompt, int move_count, int *out_index);
+
 #endif /* POKEMON_LLM_H */
