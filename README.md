@@ -4,6 +4,22 @@ C 로 만든 1세대 포켓몬 TUI 배틀 프로젝트입니다.
 
 ## 빌드 / 실행
 
+### Windows — 의존성 설치 없이 바로
+
+Visual Studio 2022 의 **Desktop development with C++** 워크로드만 있으면 끝.
+LLM 은 자동으로 꺼진 상태로 빌드되고, AI 는 휴리스틱으로 동작합니다.
+
+```powershell
+cmake -S . -B build
+cmake --build build --config Release
+.\build\Release\pokemon.exe
+```
+
+또는 Visual Studio 에서 **File > Open > Folder...** 로 폴더를 열고 그대로 실행.
+자세한 내용은 [RUN_WITH_VISUAL_STUDIO.md](RUN_WITH_VISUAL_STUDIO.md) 참고.
+
+### Linux / macOS
+
 ```sh
 make              # 빌드 (LLM 포함, libcurl 필요)
 make LLM=0        # 빌드 (LLM 없이, 의존성 없음)
@@ -11,10 +27,17 @@ make run          # 빌드 + 실행
 make clean        # 산출물 정리
 ```
 
-LLM 쪽은 OpenAI 호환 `/v1/chat/completions` 엔드포인트를 바라봅니다.
-기본값은 OpenAI지만, `LLM_BASE_URL` 로 Ollama 등 자체 호환 백엔드를 붙일 수 있습니다.
+또는 CMake 로도 가능:
+```sh
+cmake -S . -B build                            # LLM 끄고 빌드 (의존성 없음)
+cmake -S . -B build -DPOKEMON_ENABLE_LLM=ON    # LLM 켜고 빌드 (libcurl 필요)
+cmake --build build
+./build/pokemon
+```
 
-## 게임 LLM 설정
+## 게임 LLM 설정 (선택)
+
+LLM 을 실제로 게임에 물리려면 libcurl 가 있는 환경에서 LLM 포함 빌드를 해야 합니다.
 
 ```sh
 cp .env.example .env      # 열어서 OPENAI_API_KEY 채우기
@@ -26,7 +49,7 @@ make run
 - Alpine: `curl-dev`
 - Fedora: `libcurl-devel`
 - macOS: 기본 포함
-- Windows: WSL 권장
+- Windows: vcpkg 등으로 직접 설치 (없어도 게임은 휴리스틱으로 정상 동작)
 
 `.env` 대신 `export OPENAI_API_KEY=sk-...` 로 넣어도 됩니다.
 키가 없거나 호출이 실패하면 호출 측에서 폴백 처리해야 합니다.
