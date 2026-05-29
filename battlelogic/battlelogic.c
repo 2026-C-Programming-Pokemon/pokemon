@@ -917,9 +917,12 @@ Move chooseAIMove(BattlePokemon attacker, BattlePokemon defender)
         char prompt[2560];
         buildAIPrompt(attacker, defender, prompt, sizeof(prompt));
         const char *dbg = getenv("POKEMON_LLM_AI_DEBUG");
+        if (dbg != NULL && dbg[0] == '2') {
+            fprintf(stderr, "\n========== LLM PROMPT ==========\n%s\n=================================\n", prompt);
+        }
         int idx = -1;
         int rc = llm_pick_move_index(prompt, attacker.moveCount, &idx);
-        if (dbg != NULL && dbg[0] == '1') {
+        if (dbg != NULL && (dbg[0] == '1' || dbg[0] == '2')) {
             if (rc == 0 && idx >= 0 && idx < attacker.moveCount) {
                 fprintf(stderr, "[LLM] picked index=%d (%s)\n",
                         idx, attacker.moves[idx].name);
