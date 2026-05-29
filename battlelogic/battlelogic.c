@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "../pokemon.h"
+#include "../llm/llm.h"
 
 int isFainted(BattlePokemon pokemon)
 {
@@ -819,16 +820,11 @@ int scoreStatusMove(BattlePokemon attacker, BattlePokemon defender, Move move)
 }
 
 /* AI는 가장 큰 데미지를 내거나 유리한 보조 효과를 주는 기술을 선택합니다. */
-Move chooseAIMove(BattlePokemon attacker, BattlePokemon defender)
+/* 휴리스틱 폴백: 기존 점수 기반 선택. LLM 경로가 실패하면 이걸 쓴다. */
+static Move chooseAIMoveHeuristic(BattlePokemon attacker, BattlePokemon defender)
 {
-    Move bestMove;
+    Move bestMove = attacker.moves[0];
     int bestScore = -1;
-
-    if (attacker.moveCount == 0) {
-        return getFallbackMove();
-    }
-
-    bestMove = attacker.moves[0];
 
     for (int i = 0; i < attacker.moveCount; i++) {
         Move move = attacker.moves[i];
@@ -845,8 +841,98 @@ Move chooseAIMove(BattlePokemon attacker, BattlePokemon defender)
             bestMove = move;
         }
     }
-
     return bestMove;
+}
+
+/* 양쪽 포켓몬 + 기술 리스트를 사람이 읽을 수 있는 형태로 직렬화해서 프롬프트 작성. */
+static void buildAIPrompt(BattlePokemon attacker, BattlePokemon defender,
+                          char *out, size_t out_size)
+{
+    char movesBlock[1024];
+    size_t mo = 0;
+    movesBlock[0] = '\0';
+
+    for (int i = 0; i < attacker.moveCount; i++) {
+        Move m = attacker.moves[i];
+        int dmg = (m.power > 0) ? calculateDamage(attacker, defender, m) : 0;
+        float eff = (m.power > 0)
+            ? getTypeEffectiveness(m.type, defender.pokemon.type1, defender.pokemon.type2)
+            : 1.0f;
+        int statusChance = getMoveStatusChance(m);
+
+        int n = snprintf(movesBlock + mo, sizeof(movesBlock) - mo,
+            "  %d) %s [타입=%s, 분류=%s, 위력=%d, 예상데미지=%d, 상성=%.2fx, "
+            "능력변화=%d, 상태이상확률=%d%%]\n",
+            i + 1,
+            m.name,
+            typeNames[m.type],
+            (m.category == MOVE_PHYSICAL) ? "물리" : "특수",
+            m.power,
+            dmg,
+            eff,
+            m.statChange,
+            statusChance);
+        if (n <= 0 || (size_t)n >= sizeof(movesBlock) - mo) break;
+        mo += (size_t)n;
+    }
+
+    snprintf(out, out_size,
+        "너는 1세대 포켓몬 배틀의 AI 트레이너다. 아래 상황에서 최적의 기술 1개를 골라라.\n"
+        "규칙:\n"
+        "- 반드시 1 부터 %d 까지의 숫자 1개만 출력한다.\n"
+        "- 설명, 한국어, 기호, 따옴표, 공백 모두 금지. 오직 숫자 한 글자.\n"
+        "- HP 가 낮고 위협적인 적은 빨리 처치, 상성 유리한 기술 우선, 같은 효과면 명중 안정 우선.\n"
+        "\n"
+        "[내 포켓몬] %s Lv.%d (타입=%s/%s) HP=%d/%d 상태=%s "
+        "스테이지 atk=%d def=%d spa=%d spd=%d agi=%d\n"
+        "[상대 포켓몬] %s Lv.%d (타입=%s/%s) HP=%d/%d 상태=%s "
+        "스테이지 atk=%d def=%d spa=%d spd=%d agi=%d\n"
+        "[내 기술 후보]\n%s"
+        "\n출력: ",
+        attacker.moveCount,
+        attacker.pokemon.name, attacker.level,
+        typeNames[attacker.pokemon.type1],
+        (attacker.pokemon.type2 == TYPE_NONE) ? "-" : typeNames[attacker.pokemon.type2],
+        attacker.currentHp, attacker.pokemon.hp, getStatusName(attacker.status),
+        attacker.atkStage, attacker.defStage, attacker.spaStage,
+        attacker.spdStage, attacker.agiStage,
+        defender.pokemon.name, defender.level,
+        typeNames[defender.pokemon.type1],
+        (defender.pokemon.type2 == TYPE_NONE) ? "-" : typeNames[defender.pokemon.type2],
+        defender.currentHp, defender.pokemon.hp, getStatusName(defender.status),
+        defender.atkStage, defender.defStage, defender.spaStage,
+        defender.spdStage, defender.agiStage,
+        movesBlock);
+}
+
+Move chooseAIMove(BattlePokemon attacker, BattlePokemon defender)
+{
+    if (attacker.moveCount == 0) {
+        return getFallbackMove();
+    }
+
+    /* POKEMON_LLM_AI=1 이고 LLM 사용 가능할 때만 LLM 경로. 실패는 조용히 폴백. */
+    const char *flag = getenv("POKEMON_LLM_AI");
+    if (flag != NULL && flag[0] == '1' && llm_is_available()) {
+        char prompt[2560];
+        buildAIPrompt(attacker, defender, prompt, sizeof(prompt));
+        const char *dbg = getenv("POKEMON_LLM_AI_DEBUG");
+        int idx = -1;
+        int rc = llm_pick_move_index(prompt, attacker.moveCount, &idx);
+        if (dbg != NULL && dbg[0] == '1') {
+            if (rc == 0 && idx >= 0 && idx < attacker.moveCount) {
+                fprintf(stderr, "[LLM] picked index=%d (%s)\n",
+                        idx, attacker.moves[idx].name);
+            } else {
+                fprintf(stderr, "[LLM] failed/invalid -> fallback to heuristic\n");
+            }
+        }
+        if (rc == 0 && idx >= 0 && idx < attacker.moveCount) {
+            return attacker.moves[idx];
+        }
+    }
+
+    return chooseAIMoveHeuristic(attacker, defender);
 }
 
 /* 1대1 전투 상태를 간단히 출력합니다. */

@@ -14,6 +14,7 @@
 #include <io.h>
 #else
 #include <signal.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 #include <locale.h>
@@ -26,6 +27,132 @@
 static PROCESS_INFORMATION bgmProcess;
 #else
 static int bgmPid = -1;
+
+static int findExecutableInPath(const char *name)
+{
+    const char *pathEnv;
+    const char *segment;
+
+    if (name == NULL || name[0] == '\0') {
+        return 0;
+    }
+
+    if (strchr(name, '/') != NULL) {
+        return access(name, X_OK) == 0;
+    }
+
+    pathEnv = getenv("PATH");
+    if (pathEnv == NULL || pathEnv[0] == '\0') {
+        return 0;
+    }
+
+    segment = pathEnv;
+    while (*segment != '\0') {
+        const char *next = strchr(segment, ':');
+        char candidate[1024];
+        size_t dirLen;
+
+        if (next == NULL) {
+            next = segment + strlen(segment);
+        }
+
+        dirLen = (size_t)(next - segment);
+        if (dirLen == 0) {
+            snprintf(candidate, sizeof(candidate), "./%s", name);
+        } else {
+            snprintf(candidate, sizeof(candidate), "%.*s/%s", (int)dirLen, segment, name);
+        }
+
+        if (access(candidate, X_OK) == 0) {
+            return 1;
+        }
+
+        segment = (*next == ':') ? next + 1 : next;
+    }
+
+    return 0;
+}
+
+static int spawnUnixMusicPlayer(const char *path, float volume)
+{
+    pid_t pid;
+    int volumePercent;
+
+    if (path == NULL || path[0] == '\0') {
+        return -1;
+    }
+
+    volumePercent = (int)(volume * 100.0f + 0.5f);
+    if (volumePercent < 0) volumePercent = 0;
+    if (volumePercent > 100) volumePercent = 100;
+
+    pid = fork();
+    if (pid < 0) {
+        return -1;
+    }
+
+    if (pid == 0) {
+        char volumeArg[16];
+
+        setsid();
+        snprintf(volumeArg, sizeof(volumeArg), "%d", volumePercent);
+
+        if (findExecutableInPath("ffplay")) {
+            execlp("ffplay", "ffplay",
+                   "-nodisp", "-autoexit", "-loglevel", "quiet",
+                   "-stream_loop", "-1", "-volume", volumeArg,
+                   path, (char *)NULL);
+        }
+
+        if (findExecutableInPath("mpv")) {
+            char mpvVolume[32];
+            snprintf(mpvVolume, sizeof(mpvVolume), "--volume=%d", volumePercent);
+            execlp("mpv", "mpv",
+                   "--no-video", "--really-quiet", "--loop-file=inf",
+                   mpvVolume, path, (char *)NULL);
+        }
+
+        if (findExecutableInPath("mpg123")) {
+            execlp("mpg123", "mpg123",
+                   "--quiet", "--loop", "-1",
+                   path, (char *)NULL);
+        }
+
+        if (findExecutableInPath("cvlc")) {
+            execlp("cvlc", "cvlc",
+                   "--play-and-exit", "--quiet", "--loop",
+                   path, (char *)NULL);
+        }
+
+        if (findExecutableInPath("vlc")) {
+            execlp("vlc", "vlc",
+                   "--intf", "dummy", "--play-and-exit", "--quiet", "--loop",
+                   path, (char *)NULL);
+        }
+
+#ifdef __APPLE__
+        if (findExecutableInPath("afplay")) {
+            char shellCommand[1400];
+            snprintf(shellCommand, sizeof(shellCommand),
+                     "while :; do afplay -v %.2f \"%s\"; sleep 0.2; done",
+                     volume, path);
+            execl("/bin/sh", "sh", "-c", shellCommand, (char *)NULL);
+        }
+#endif
+
+        _exit(127);
+    }
+
+    {
+        struct timespec settle = {0, 50 * 1000 * 1000};
+        nanosleep(&settle, NULL);
+    }
+    if (waitpid(pid, NULL, WNOHANG) == pid) {
+        return -1;
+    }
+
+    return (int)pid;
+}
 #endif
 
 static float musicVolume = 1.0f;
@@ -267,17 +394,7 @@ static void playMusic(const char *path, float volume)
 
     stopBackgroundMusic();
 
-    char command[1024];
-    snprintf(command, sizeof(command), "while :; do afplay -v %.2f \"%s\"; done >/dev/null 2>&1 & echo $!", volume, path);
-    FILE *pipe = popen(command, "r");
-    if (pipe == NULL) {
-        return;
-    }
-
-    if (fscanf(pipe, "%d", &bgmPid) != 1) {
-        bgmPid = -1;
-    }
-    pclose(pipe);
+    bgmPid = spawnUnixMusicPlayer(path, volume);
 #endif
 }
 
@@ -339,10 +456,9 @@ static void stopBackgroundMusic(void)
         return;
     }
 
-    char command[64];
-    snprintf(command, sizeof(command), "pkill -TERM -P %d >/dev/null 2>&1", bgmPid);
-    system(command);
+    kill(-bgmPid, SIGTERM);
     kill(bgmPid, SIGTERM);
+    waitpid((pid_t)bgmPid, NULL, WNOHANG);
     bgmPid = -1;
 #endif
 }

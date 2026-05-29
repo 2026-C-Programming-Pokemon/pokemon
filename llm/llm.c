@@ -15,6 +15,12 @@ int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
     return -1;
 }
 
+int llm_pick_move_index(const char *prompt, int move_count, int *out_index)
+{
+    (void)prompt; (void)move_count; (void)out_index;
+    return -1;
+}
+
 #else
 
 #include <stdio.h>
@@ -256,8 +262,15 @@ int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    /* 배틀 중 한 턴씩 끊기지 않도록 LLM_TIMEOUT_MS 로 짧게 줄일 수 있게 한다. */
+    long timeout_ms = 30000;
+    const char *to_env = getenv("LLM_TIMEOUT_MS");
+    if (to_env != NULL && to_env[0] != '\0') {
+        long v = strtol(to_env, NULL, 10);
+        if (v > 0) timeout_ms = v;
+    }
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, timeout_ms < 5000 ? timeout_ms : 5000L);
 
     CURLcode rc = curl_easy_perform(curl);
     long http_code = 0;
@@ -276,6 +289,28 @@ int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
 
     free(resp.data);
     return result;
+}
+
+int llm_pick_move_index(const char *prompt, int move_count, int *out_index)
+{
+    if (out_index == NULL || move_count <= 0 || move_count > 9) return -1;
+
+    char response[256];
+    if (llm_generate(prompt, response, sizeof(response)) != 0) return -1;
+
+    /* 응답에서 첫 자릿수 한 글자만 본다. "정답은 2번입니다" 같은 잡담도 잡아낸다. */
+    for (size_t i = 0; response[i] != '\0'; i++) {
+        char c = response[i];
+        if (c >= '1' && c <= '9') {
+            int n = c - '0';
+            if (n >= 1 && n <= move_count) {
+                *out_index = n - 1;
+                return 0;
+            }
+            return -1;
+        }
+    }
+    return -1;
 }
 
 #endif /* LLM_DISABLED */

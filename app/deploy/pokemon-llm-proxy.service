@@ -1,0 +1,39 @@
+# /etc/systemd/system/pokemon-llm-proxy.service
+# 사용:
+#   sudo cp app/deploy/pokemon-llm-proxy.service /etc/systemd/system/
+#   sudo cp app/.env /etc/pokemon-llm-proxy.env && sudo chmod 600 /etc/pokemon-llm-proxy.env
+#   sudo systemctl daemon-reload && sudo systemctl enable --now pokemon-llm-proxy
+[Unit]
+Description=Pokemon LLM proxy (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 배포 위치는 조직 컨벤션에 맞게 수정.
+WorkingDirectory=/opt/pokemon-api-proxy
+EnvironmentFile=/etc/pokemon-llm-proxy.env
+ExecStart=/opt/pokemon-api-proxy/.venv/bin/python -m app.main
+Restart=on-failure
+RestartSec=3s
+
+# 보안 하드닝.
+User=pokemon
+Group=pokemon
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/pokemon-llm-proxy
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
