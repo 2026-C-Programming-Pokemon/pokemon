@@ -1,12 +1,8 @@
 # pokemon
 
-C 로 만든 1세대 포켓몬 TUI 배틀 프로젝트입니다. 게임 본체는 C 콘솔 앱이고, 외부 LLM 키를 직접 배포하지 않기 위해 FastAPI 기반 프록시 서버를 `app/` 에 별도로 두고 있습니다.
+C 로 만든 1세대 포켓몬 TUI 배틀 프로젝트입니다.
 
-> 현재 `feat/api-proxy-server` 브랜치에는 **FastAPI LLM 프록시 서버**와 **Unix 배경음악 폴백 안정화**가 포함되어 있습니다.
-
-## 현재 구성
-
-### 1) 게임 본체 (C)
+## 빌드 / 실행
 
 ```sh
 make              # 빌드 (LLM 포함, libcurl 필요)
@@ -16,25 +12,7 @@ make clean        # 산출물 정리
 ```
 
 LLM 쪽은 OpenAI 호환 `/v1/chat/completions` 엔드포인트를 바라봅니다.
-기본값은 OpenAI지만, `LLM_BASE_URL` 로 Ollama 또는 자체 프록시 서버를 붙일 수 있습니다.
-
-### 2) LLM 프록시 서버 (FastAPI)
-
-```sh
-cd app
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements-dev.txt
-python -m app.main
-```
-
-프록시는 다음 목적을 가집니다:
-- 업스트림 API 키를 클라이언트에 배포하지 않기
-- OpenAI 호환 `/v1/chat/completions` 제공
-- HMAC 서명 / timestamp / nonce / rate limit 기반 남용 방지
-- 클라이언트 식별 규칙(`User-Agent`, client id) 강제
-
-자세한 설정은 [app/README.md](app/README.md) 참고.
+기본값은 OpenAI지만, `LLM_BASE_URL` 로 Ollama 등 자체 호환 백엔드를 붙일 수 있습니다.
 
 ## 게임 LLM 설정
 
@@ -55,11 +33,13 @@ make run
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `OPENAI_API_KEY` | - | OpenAI 사용 시 필수. 자체 프록시/로컬 백엔드면 비울 수 있음. |
-| `LLM_BASE_URL` | `https://api.openai.com/v1/chat/completions` | OpenAI 호환 엔드포인트. 예: `http://localhost:11434/v1/chat/completions` 또는 자체 프록시 URL |
+| `OPENAI_API_KEY` | - | OpenAI 사용 시 필수. 로컬 백엔드면 비울 수 있음. |
+| `LLM_BASE_URL` | `https://api.openai.com/v1/chat/completions` | OpenAI 호환 엔드포인트. 예: `http://localhost:11434/v1/chat/completions` |
 | `LLM_MODEL` | `gpt-4o-mini` | 모델 ID |
+| `POKEMON_LLM_AI` | - | `1` 로 설정 시 상대 트레이너의 기술 선택을 LLM 에게 맡김 (실패시 휴리스틱 폴백) |
+| `LLM_TIMEOUT_MS` | `30000` | LLM 호출 타임아웃 (ms). 배틀 중엔 짧게 잡는 편이 좋음 |
 
-[.env.example](.env.example) 에 OpenAI / Ollama / 호환 백엔드 템플릿이 있습니다.
+[.env.example](.env.example) 에 OpenAI / Ollama 백엔드 템플릿이 있습니다.
 
 ## 배경음악 메모
 
@@ -81,5 +61,4 @@ make run
 - [llm/](llm/) — libcurl 기반 LLM 호출 모듈 (OpenAI 호환)
 - [score/](score/) — 리더보드/점수 저장
 - [sound/](sound/) — 배경음악 파일
-- [app/](app/) — FastAPI 기반 LLM 프록시 서버
 - [tools/ascii_converter/](tools/ascii_converter/) — PNG → 유니코드 ASCII 변환기 (Python)
