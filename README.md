@@ -22,6 +22,9 @@ cmake --build build --config Release
 make run
 ```
 
+> 외부 라이브러리 의존성 없음. LLM 은 시스템에 깔린 `curl` 바이너리를 쓰며,
+> Windows 10 1803+, macOS, 대부분의 Linux 배포판에 기본 포함되어 있습니다.
+
 ## 조작
 
 - 번호 키로 메뉴 / 기술 선택
@@ -43,10 +46,8 @@ make run
 | `LLM_MODEL` | 기본 `gpt-4o-mini` |
 | `LLM_TIMEOUT_MS` | 한 턴 기다리는 최대 시간 (ms) |
 
-LLM 호출이 실패하면 자동으로 기본 AI 로 돌아갑니다.
-
-> macOS/Linux 에서 LLM 켜고 빌드하려면 `libcurl` 이 필요합니다.
-> (`brew install curl` / `apt install libcurl4-openssl-dev`)
+LLM 호출이 실패하거나 `curl` 이 없으면 자동으로 기본 AI 로 돌아갑니다.
+자세한 내용은 [docs/llm-ai.md](docs/llm-ai.md).
 
 ## 폴더
 
@@ -55,6 +56,6 @@ LLM 호출이 실패하면 자동으로 기본 AI 로 돌아갑니다.
 - `skill/` — 기술 데이터
 - `battlelogic/` — 데미지, 상태이상, AI
 - `entry/` — 트레이너 구성
-- `llm/` — LLM 호출
+- `llm/` — LLM 호출 (시스템 curl 경유)
 - `score/` — 점수판
 - `sound/` — 배경음악

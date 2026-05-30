@@ -6,8 +6,6 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
-option(POKEMON_ENABLE_LLM "Build with libcurl-backed LLM support" OFF)
-
 add_executable(pokemon
     pokemon.c
     dogam/dogam.c
@@ -37,13 +35,6 @@ target_include_directories(pokemon PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/llm
     ${CMAKE_CURRENT_SOURCE_DIR}/score
 )
-
-if(POKEMON_ENABLE_LLM)
-    find_package(CURL REQUIRED)
-    target_link_libraries(pokemon PRIVATE CURL::libcurl)
-else()
-    target_compile_definitions(pokemon PRIVATE LLM_DISABLED)
-endif()
 
 if(MSVC)
     target_compile_options(pokemon PRIVATE /utf-8 /W4)

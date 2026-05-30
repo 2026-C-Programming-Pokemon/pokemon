@@ -1,86 +1,53 @@
+/*
+ * LLM 호출 모듈. 외부 라이브러리 의존성이 없다.
+ *
+ * 시스템에 깔린 curl 바이너리를 system() 으로 호출해서 OpenAI 호환
+ * Chat Completions 엔드포인트에 POST 한다.
+ *
+ * curl 은 Windows 10 1803+, macOS, 거의 모든 Linux 배포판에 기본 설치되어
+ * 있다. 없으면 호출이 실패하고 게임은 휴리스틱으로 폴백한다.
+ *
+ * 요청 본문과 응답은 임시 파일로 주고받는다 (셸 이스케이프 회피).
+ */
+
 #include "llm.h"
-
-#ifdef LLM_DISABLED
-
-/* libcurl 없이도 빌드되도록 한 스텁 구현. 게임은 폴백 메시지로 동작합니다. */
-
-int  llm_init(void)         { return 0; }
-void llm_cleanup(void)      { }
-int  llm_is_available(void) { return 0; }
-
-int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
-{
-    (void)prompt;
-    if (out_buffer != NULL && out_size > 0) out_buffer[0] = '\0';
-    return -1;
-}
-
-int llm_pick_move_index(const char *prompt, int move_count, int *out_index)
-{
-    (void)prompt; (void)move_count; (void)out_index;
-    return -1;
-}
-
-#else
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <curl/curl.h>
 
-/* 기본은 OpenAI. LLM_BASE_URL 환경변수로 OpenAI 호환 다른 엔드포인트
- * (예: Ollama 의 http://localhost:11434/v1/chat/completions) 로 갈아끼울 수 있습니다. */
-#define LLM_DEFAULT_URL      "https://api.openai.com/v1/chat/completions"
-#define LLM_DEFAULT_MODEL    "gpt-4o-mini"
-#define LLM_MAX_TOKENS       256
-#define LLM_RESPONSE_BUFFER  (16 * 1024)
+#ifdef _WIN32
+#  include <process.h>     /* _getpid */
+#  define LLM_GETPID _getpid
+#else
+#  include <unistd.h>      /* getpid, unlink */
+#  define LLM_GETPID getpid
+#endif
 
-/* 호출 측이 미리 llm_init 을 호출했는지 추적합니다. */
-static int g_initialized = 0;
+#define LLM_DEFAULT_URL   "https://api.openai.com/v1/chat/completions"
+#define LLM_DEFAULT_MODEL "gpt-4o-mini"
+#define LLM_MAX_TOKENS    256
 
-/* libcurl 가 응답을 흘려 넣을 동적 버퍼. */
-typedef struct {
-    char  *data;
-    size_t len;
-    size_t cap;
-} ResponseBuffer;
+int llm_init(void)    { return 0; }
+void llm_cleanup(void) { }
 
-static size_t write_callback(void *contents, size_t size, size_t nmemb, void *userp)
+int llm_is_available(void)
 {
-    size_t add = size * nmemb;
-    ResponseBuffer *buf = (ResponseBuffer *)userp;
-
-    if (buf->len + add + 1 > buf->cap) {
-        size_t new_cap = buf->cap ? buf->cap * 2 : 4096;
-        while (new_cap < buf->len + add + 1) {
-            new_cap *= 2;
-        }
-        char *grown = (char *)realloc(buf->data, new_cap);
-        if (grown == NULL) {
-            return 0;
-        }
-        buf->data = grown;
-        buf->cap  = new_cap;
-    }
-
-    memcpy(buf->data + buf->len, contents, add);
-    buf->len += add;
-    buf->data[buf->len] = '\0';
-    return add;
+    const char *key = getenv("OPENAI_API_KEY");
+    const char *url = getenv("LLM_BASE_URL");
+    if (key != NULL && key[0] != '\0') return 1;
+    if (url != NULL && url[0] != '\0') return 1;
+    return 0;
 }
 
-/*
- * JSON 문자열에 들어갈 수 있도록 사용자 입력을 이스케이프합니다.
- * 매우 단순한 처리만 합니다: " \ \n \r \t 와 제어문자.
- * out 에 충분한 공간이 있다고 가정합니다 (대략 입력 길이의 6배).
- */
+/* JSON 문자열 안에 들어갈 수 있게 입력을 이스케이프한다. */
 static void json_escape(const char *in, char *out, size_t out_size)
 {
     size_t o = 0;
     for (size_t i = 0; in[i] != '\0'; i++) {
         unsigned char c = (unsigned char)in[i];
         const char *seq = NULL;
-        char  unicode_buf[8];
+        char unicode_buf[8];
         size_t need;
 
         switch (c) {
@@ -112,13 +79,7 @@ static void json_escape(const char *in, char *out, size_t out_size)
     out[o] = '\0';
 }
 
-/*
- * 응답 JSON 에서 choices[0].message.content 값을 뽑아냅니다.
- * 정식 파서가 아니라, OpenAI Chat Completions 응답 포맷에 한정한 단순 추출입니다.
- * 응답 예시:
- *   { ..., "choices":[{"index":0,"message":{"role":"assistant","content":"...실제 텍스트..."}, ...}], ... }
- * 성공 시 0, 실패 시 -1.
- */
+/* 응답 JSON 에서 choices[0].message.content 값을 뽑는다. */
 static int extract_text(const char *json, char *out, size_t out_size)
 {
     const char *p = strstr(json, "\"message\"");
@@ -149,7 +110,6 @@ static int extract_text(const char *json, char *out, size_t out_size)
                 case 'b':  decoded = '\b'; break;
                 case 'f':  decoded = '\f'; break;
                 case 'u':
-                    /* 단순화를 위해 \uXXXX 는 그대로 4글자를 건너뛰고 ? 로 대체합니다. */
                     if (o + 1 >= out_size) break;
                     out[o++] = '?';
                     p += 6;
@@ -168,35 +128,23 @@ static int extract_text(const char *json, char *out, size_t out_size)
             p++;
         }
     }
-
     out[o] = '\0';
     return -1;
 }
 
-int llm_init(void)
+/* 임시 파일 경로를 만든다. 같은 프로세스가 동시에 여러 번 호출돼도 안 겹치게
+ * pid + 카운터를 섞는다. */
+static void temp_path(char *out, size_t out_size, const char *suffix, int seq)
 {
-    if (g_initialized) return 0;
-    CURLcode rc = curl_global_init(CURL_GLOBAL_DEFAULT);
-    if (rc != CURLE_OK) return -1;
-    g_initialized = 1;
-    return 0;
-}
-
-void llm_cleanup(void)
-{
-    if (!g_initialized) return;
-    curl_global_cleanup();
-    g_initialized = 0;
-}
-
-int llm_is_available(void)
-{
-    /* OpenAI 키가 있거나, LLM_BASE_URL 이 명시되어 있으면 (Ollama 등) 사용 가능으로 본다. */
-    const char *key = getenv("OPENAI_API_KEY");
-    const char *url = getenv("LLM_BASE_URL");
-    if (key != NULL && key[0] != '\0') return 1;
-    if (url != NULL && url[0] != '\0') return 1;
-    return 0;
+#ifdef _WIN32
+    const char *dir = getenv("TEMP");
+    if (dir == NULL || dir[0] == '\0') dir = ".";
+    snprintf(out, out_size, "%s\\llm_%d_%d_%s", dir, (int)LLM_GETPID(), seq, suffix);
+#else
+    const char *dir = getenv("TMPDIR");
+    if (dir == NULL || dir[0] == '\0') dir = "/tmp";
+    snprintf(out, out_size, "%s/llm_%d_%d_%s", dir, (int)LLM_GETPID(), seq, suffix);
+#endif
 }
 
 int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
@@ -204,16 +152,11 @@ int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
     if (out_buffer == NULL || out_size == 0) return -1;
     out_buffer[0] = '\0';
 
-    if (!g_initialized) {
-        if (llm_init() != 0) return -1;
-    }
-
-    /* api_key 는 비어 있어도 됨 (Ollama 로컬). url 도 비면 OpenAI 기본값 사용. */
     const char *api_key = getenv("OPENAI_API_KEY");
     const char *url     = getenv("LLM_BASE_URL");
     if (url == NULL || url[0] == '\0') url = LLM_DEFAULT_URL;
 
-    /* OpenAI 엔드포인트인데 키가 없으면 호출 자체가 의미 없으므로 조기 종료. */
+    /* OpenAI 직결인데 키가 없으면 의미가 없다. */
     if (strstr(url, "api.openai.com") != NULL && (api_key == NULL || api_key[0] == '\0')) {
         return -1;
     }
@@ -221,7 +164,14 @@ int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
     const char *model = getenv("LLM_MODEL");
     if (model == NULL || model[0] == '\0') model = LLM_DEFAULT_MODEL;
 
-    /* prompt 를 JSON 으로 직렬화. 입력 길이의 약 6배까지 안전. */
+    long timeout_ms = 30000;
+    const char *to_env = getenv("LLM_TIMEOUT_MS");
+    if (to_env != NULL && to_env[0] != '\0') {
+        long v = strtol(to_env, NULL, 10);
+        if (v > 0) timeout_ms = v;
+    }
+
+    /* 본문 직렬화 */
     size_t prompt_len = strlen(prompt);
     size_t esc_size = prompt_len * 6 + 16;
     char *escaped = (char *)malloc(esc_size);
@@ -230,64 +180,89 @@ int llm_generate(const char *prompt, char *out_buffer, size_t out_size)
 
     size_t body_cap = esc_size + 512;
     char *body = (char *)malloc(body_cap);
-    if (body == NULL) {
-        free(escaped);
-        return -1;
-    }
+    if (body == NULL) { free(escaped); return -1; }
     snprintf(body, body_cap,
         "{\"model\":\"%s\",\"max_tokens\":%d,"
         "\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}]}",
         model, LLM_MAX_TOKENS, escaped);
     free(escaped);
 
-    CURL *curl = curl_easy_init();
-    if (curl == NULL) {
-        free(body);
-        return -1;
-    }
+    /* 본문/응답 임시 파일 */
+    static int seq = 0;
+    int my_seq = ++seq;
+    char body_path[512], resp_path[512];
+    temp_path(body_path, sizeof(body_path), "req.json", my_seq);
+    temp_path(resp_path, sizeof(resp_path), "resp.json", my_seq);
 
-    ResponseBuffer resp = { NULL, 0, 0 };
-
-    struct curl_slist *headers = NULL;
-    if (api_key != NULL && api_key[0] != '\0') {
-        char auth_header[512];
-        snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", api_key);
-        headers = curl_slist_append(headers, auth_header);
-    }
-    headers = curl_slist_append(headers, "content-type: application/json");
-
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
-    /* 배틀 중 한 턴씩 끊기지 않도록 LLM_TIMEOUT_MS 로 짧게 줄일 수 있게 한다. */
-    long timeout_ms = 30000;
-    const char *to_env = getenv("LLM_TIMEOUT_MS");
-    if (to_env != NULL && to_env[0] != '\0') {
-        long v = strtol(to_env, NULL, 10);
-        if (v > 0) timeout_ms = v;
-    }
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, timeout_ms < 5000 ? timeout_ms : 5000L);
-
-    CURLcode rc = curl_easy_perform(curl);
-    long http_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
+    FILE *bf = fopen(body_path, "wb");
+    if (bf == NULL) { free(body); return -1; }
+    fwrite(body, 1, strlen(body), bf);
+    fclose(bf);
     free(body);
 
-    int result = -1;
-    if (rc == CURLE_OK && http_code >= 200 && http_code < 300 && resp.data != NULL) {
-        if (extract_text(resp.data, out_buffer, out_size) == 0) {
-            result = 0;
-        }
+    /* curl 명령어 조립. 본문은 파일에서 읽으므로 셸 이스케이프 걱정이 없다.
+     * URL/키는 우리가 제어하는 값이라 안전하지만, 일단 큰따옴표로 감싸 둔다. */
+    char cmd[4096];
+    if (api_key != NULL && api_key[0] != '\0') {
+        snprintf(cmd, sizeof(cmd),
+            "curl -sS -X POST "
+            "-H \"content-type: application/json\" "
+            "-H \"Authorization: Bearer %s\" "
+            "--data-binary @\"%s\" "
+            "--max-time %ld "
+            "-o \"%s\" "
+            "\"%s\"",
+            api_key, body_path, (timeout_ms + 999) / 1000, resp_path, url);
+    } else {
+        snprintf(cmd, sizeof(cmd),
+            "curl -sS -X POST "
+            "-H \"content-type: application/json\" "
+            "--data-binary @\"%s\" "
+            "--max-time %ld "
+            "-o \"%s\" "
+            "\"%s\"",
+            body_path, (timeout_ms + 999) / 1000, resp_path, url);
     }
 
-    free(resp.data);
+    /* Windows 에서 콘솔 창이 깜빡이지 않게 stderr 도 묻는다. 디버깅 어려워지면
+     * LLM_VERBOSE=1 로 살릴 수 있게 한다. */
+    const char *verbose = getenv("LLM_VERBOSE");
+    char full_cmd[4352];
+    if (verbose == NULL || verbose[0] == '\0') {
+#ifdef _WIN32
+        snprintf(full_cmd, sizeof(full_cmd), "%s 2>NUL", cmd);
+#else
+        snprintf(full_cmd, sizeof(full_cmd), "%s 2>/dev/null", cmd);
+#endif
+    } else {
+        snprintf(full_cmd, sizeof(full_cmd), "%s", cmd);
+    }
+
+    int rc = system(full_cmd);
+    remove(body_path);
+
+    int result = -1;
+    if (rc == 0) {
+        FILE *rf = fopen(resp_path, "rb");
+        if (rf != NULL) {
+            fseek(rf, 0, SEEK_END);
+            long len = ftell(rf);
+            fseek(rf, 0, SEEK_SET);
+            if (len > 0 && len < (1 << 20)) {
+                char *resp = (char *)malloc((size_t)len + 1);
+                if (resp != NULL) {
+                    size_t got = fread(resp, 1, (size_t)len, rf);
+                    resp[got] = '\0';
+                    if (extract_text(resp, out_buffer, out_size) == 0) {
+                        result = 0;
+                    }
+                    free(resp);
+                }
+            }
+            fclose(rf);
+        }
+    }
+    remove(resp_path);
     return result;
 }
 
@@ -298,7 +273,7 @@ int llm_pick_move_index(const char *prompt, int move_count, int *out_index)
     char response[256];
     if (llm_generate(prompt, response, sizeof(response)) != 0) return -1;
 
-    /* 응답에서 첫 자릿수 한 글자만 본다. "정답은 2번입니다" 같은 잡담도 잡아낸다. */
+    /* 응답에서 첫 자릿수 한 글자만 본다. */
     for (size_t i = 0; response[i] != '\0'; i++) {
         char c = response[i];
         if (c >= '1' && c <= '9') {
@@ -312,5 +287,3 @@ int llm_pick_move_index(const char *prompt, int move_count, int *out_index)
     }
     return -1;
 }
-
-#endif /* LLM_DISABLED */

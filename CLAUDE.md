@@ -20,22 +20,19 @@ C 콘솔 1세대 포켓몬 배틀 게임. LLM 은 OpenAI API 직결로 호출한
 ## 빌드 / 실행
 
 ```sh
-make          # pokemon 실행 파일 생성 (libcurl 필요)
-make LLM=0    # libcurl 없이 빌드 (LLM 스텁)
+make          # pokemon 실행 파일 생성
 make run      # 빌드 후 실행. stderr 는 llm.log 로 자동 분리
 make clean    # 산출물 정리
 ```
 
-또는 CMake (Windows 권장 — 기본 LLM OFF):
+또는 CMake (Windows 권장):
 ```sh
 cmake -S . -B build && cmake --build build
 ```
 
 - 컴파일러: `cc` (gcc/clang 어느 쪽이든 c99)
-- 의존성 (LLM 활성 빌드 시): `libcurl`
-  - Debian/Ubuntu: `apt install libcurl4-openssl-dev`
-  - Alpine: `apk add curl-dev`
-  - macOS: 시스템 기본 포함
+- **빌드/링크 의존성 없음.** LLM 은 시스템에 깔린 `curl` 바이너리를 호출한다
+  (Windows 10 1803+, macOS, 대부분 Linux 에 기본 포함; 없으면 런타임에 폴백).
 
 ## LLM 모듈 메모
 
