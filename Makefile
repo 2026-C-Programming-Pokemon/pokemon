@@ -38,4 +38,5 @@ clean:
 	rm -f $(OBJ) $(BIN)
 
 run: $(BIN)
-	./$(BIN)
+	@echo "[LLM 로그는 llm.log 에 쌓입니다. 다른 터미널에서 'tail -f llm.log' 추천]"
+	./$(BIN) 2>llm.log
