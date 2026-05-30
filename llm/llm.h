@@ -4,36 +4,21 @@
 #include <stddef.h>
 
 /*
- * 포켓몬 배틀용 LLM 호출 모듈.
+ * 외부 LLM (OpenAI 호환 Chat Completions API) 을 호출하는 작은 모듈.
  *
- * - OpenAI Chat Completions API 를 libcurl 로 호출합니다.
- * - 환경 변수 OPENAI_API_KEY 를 사용합니다.
- * - 모델은 LLM_MODEL 환경 변수로 덮어쓸 수 있고, 없으면 gpt-4o-mini 입니다.
- * - 키가 없거나 호출이 실패하면 함수가 -1 을 돌려주고, 호출 측은 LLM
- *   없이도 게임이 정상 동작하도록 폴백 메시지를 써야 합니다.
+ * - 빌드/링크 의존성 없음. 호출은 시스템 curl 바이너리를 통한다.
+ * - 환경변수: OPENAI_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS.
+ * - 키가 없거나 curl 이 없거나 호출이 실패하면 -1 을 돌려준다.
+ *   호출 측은 -1 일 때 휴리스틱으로 폴백한다.
  */
 
-/* 전역 libcurl 초기화. 프로그램 시작 시 한 번 호출합니다. */
-int llm_init(void);
-
-/* 전역 libcurl 정리. 프로그램 종료 직전에 한 번 호출합니다. */
-void llm_cleanup(void);
-
-/* LLM 사용 가능 여부 (API 키가 설정되어 있는지). */
+/* OPENAI_API_KEY 나 LLM_BASE_URL 이 설정되어 있으면 1, 아니면 0. */
 int llm_is_available(void);
 
-/*
- * 동기 호출. prompt 를 보내고 out_buffer 에 응답 텍스트를 채워 넣습니다.
- * 성공 시 0, 실패 시 -1 을 반환합니다.
- * 응답은 항상 NUL 종료되며 out_size-1 길이로 잘립니다.
- */
-int llm_generate(const char *prompt, char *out_buffer, size_t out_size);
+/* prompt 를 보내고 응답 텍스트를 out 에 채운다. 성공 0, 실패 -1. */
+int llm_generate(const char *prompt, char *out, size_t out_size);
 
-/*
- * 배틀 AI 전용: 프롬프트를 보내고 응답에서 "1..move_count" 범위의 첫 정수를
- * 뽑아 0-based 인덱스로 *out_index 에 채워 넣습니다.
- * 성공 시 0, 호출/파싱 실패 시 -1. 호출 측은 -1 일 때 휴리스틱으로 폴백합니다.
- */
+/* 배틀 AI 전용: 응답에서 "1..move_count" 범위 첫 정수를 0-based 로 돌려준다. */
 int llm_pick_move_index(const char *prompt, int move_count, int *out_index);
 
-#endif /* POKEMON_LLM_H */
+#endif
