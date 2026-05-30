@@ -927,8 +927,9 @@ Move chooseAIMove(BattlePokemon attacker, BattlePokemon defender)
     const char *flag = getenv("POKEMON_LLM_AI");
     if (flag != NULL && flag[0] == '1' && llm_is_available()) {
         const char *dbg     = getenv("POKEMON_LLM_AI_DEBUG");
+        /* 근거 출력 모드는 기본 ON. POKEMON_LLM_AI_EXPLAIN=0 으로만 끌 수 있다. */
         const char *explain = getenv("POKEMON_LLM_AI_EXPLAIN");
-        int explainMode = (explain != NULL && explain[0] == '1');
+        int explainMode = (explain == NULL || explain[0] != '0');
 
         char prompt[2560];
         buildAIPrompt(attacker, defender, prompt, sizeof(prompt), explainMode);
