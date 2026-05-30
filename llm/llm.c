@@ -152,7 +152,7 @@ static int extract_content_field(const char *json, char *out, size_t out_size)
     }
     out[written] = '\0';
 
-    /* 닫는 큰따옴표를 못 만났으면 응답이 잘린 것 */
+    /* 닫는 큰따옴표를 못 만났으면 응답이 잘린 것 -> fallback*/
     return (*cursor == '"') ? 0 : -1;
 }
 
