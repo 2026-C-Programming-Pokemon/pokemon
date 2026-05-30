@@ -844,9 +844,10 @@ static Move chooseAIMoveHeuristic(BattlePokemon attacker, BattlePokemon defender
     return bestMove;
 }
 
-/* 양쪽 포켓몬 + 기술 리스트를 사람이 읽을 수 있는 형태로 직렬화해서 프롬프트 작성. */
+/* 양쪽 포켓몬 + 기술 리스트를 사람이 읽을 수 있는 형태로 직렬화해서 프롬프트 작성.
+   explain != 0 이면 "이유 한 줄 + 답: 숫자" 형식으로 답하게 한다 (디버그 전용). */
 static void buildAIPrompt(BattlePokemon attacker, BattlePokemon defender,
-                          char *out, size_t out_size)
+                          char *out, size_t out_size, int explain)
 {
     char movesBlock[1024];
     size_t mo = 0;
@@ -876,12 +877,23 @@ static void buildAIPrompt(BattlePokemon attacker, BattlePokemon defender,
         mo += (size_t)n;
     }
 
+    const char *rules = explain
+        ? "규칙:\n"
+          "- 첫 줄에 '이유:' 로 시작하는 한 줄짜리 짧은 근거를 쓴다 (40자 이내).\n"
+          "- 둘째 줄에 '답: N' 형식으로 1 부터 %d 까지 숫자 하나를 쓴다.\n"
+          "- 그 외 문장 / 기호 / 추가 줄 금지.\n"
+          "- HP 가 낮고 위협적인 적은 빨리 처치, 상성 유리한 기술 우선, 같은 효과면 명중 안정 우선.\n"
+        : "규칙:\n"
+          "- 반드시 1 부터 %d 까지의 숫자 1개만 출력한다.\n"
+          "- 설명, 한국어, 기호, 따옴표, 공백 모두 금지. 오직 숫자 한 글자.\n"
+          "- HP 가 낮고 위협적인 적은 빨리 처치, 상성 유리한 기술 우선, 같은 효과면 명중 안정 우선.\n";
+
+    char rulesBuf[512];
+    snprintf(rulesBuf, sizeof(rulesBuf), rules, attacker.moveCount);
+
     snprintf(out, out_size,
         "너는 1세대 포켓몬 배틀의 AI 트레이너다. 아래 상황에서 최적의 기술 1개를 골라라.\n"
-        "규칙:\n"
-        "- 반드시 1 부터 %d 까지의 숫자 1개만 출력한다.\n"
-        "- 설명, 한국어, 기호, 따옴표, 공백 모두 금지. 오직 숫자 한 글자.\n"
-        "- HP 가 낮고 위협적인 적은 빨리 처치, 상성 유리한 기술 우선, 같은 효과면 명중 안정 우선.\n"
+        "%s"
         "\n"
         "[내 포켓몬] %s Lv.%d (타입=%s/%s) HP=%d/%d 상태=%s "
         "스테이지 atk=%d def=%d spa=%d spd=%d agi=%d\n"
@@ -889,7 +901,7 @@ static void buildAIPrompt(BattlePokemon attacker, BattlePokemon defender,
         "스테이지 atk=%d def=%d spa=%d spd=%d agi=%d\n"
         "[내 기술 후보]\n%s"
         "\n출력: ",
-        attacker.moveCount,
+        rulesBuf,
         attacker.pokemon.name, attacker.level,
         typeNames[attacker.pokemon.type1],
         (attacker.pokemon.type2 == TYPE_NONE) ? "-" : typeNames[attacker.pokemon.type2],
@@ -914,14 +926,52 @@ Move chooseAIMove(BattlePokemon attacker, BattlePokemon defender)
     /* POKEMON_LLM_AI=1 이고 LLM 사용 가능할 때만 LLM 경로. 실패는 조용히 폴백. */
     const char *flag = getenv("POKEMON_LLM_AI");
     if (flag != NULL && flag[0] == '1' && llm_is_available()) {
+        const char *dbg     = getenv("POKEMON_LLM_AI_DEBUG");
+        const char *explain = getenv("POKEMON_LLM_AI_EXPLAIN");
+        int explainMode = (explain != NULL && explain[0] == '1');
+
         char prompt[2560];
-        buildAIPrompt(attacker, defender, prompt, sizeof(prompt));
-        const char *dbg = getenv("POKEMON_LLM_AI_DEBUG");
+        buildAIPrompt(attacker, defender, prompt, sizeof(prompt), explainMode);
         if (dbg != NULL && dbg[0] == '2') {
             fprintf(stderr, "\n========== LLM PROMPT ==========\n%s\n=================================\n", prompt);
         }
+
         int idx = -1;
-        int rc = llm_pick_move_index(prompt, attacker.moveCount, &idx);
+        int rc;
+        if (explainMode) {
+            /* 자유 텍스트 받아서 stderr 에 근거 출력 + "답: N" 또는 마지막 숫자 파싱. */
+            char resp[512];
+            rc = llm_generate(prompt, resp, sizeof(resp));
+            if (rc == 0) {
+                fprintf(stderr, "\n[LLM 응답]\n%s\n", resp);
+                /* "답:" 뒤의 숫자 우선, 없으면 응답 안의 마지막 1..N 숫자. */
+                const char *p = strstr(resp, "답:");
+                if (p == NULL) p = strstr(resp, "답 :");
+                int found = -1;
+                if (p != NULL) {
+                    for (; *p != '\0'; p++) {
+                        if (*p >= '1' && *p <= '9') {
+                            int n = *p - '0';
+                            if (n >= 1 && n <= attacker.moveCount) { found = n - 1; break; }
+                        }
+                    }
+                }
+                if (found < 0) {
+                    for (size_t i = 0; resp[i] != '\0'; i++) {
+                        char c = resp[i];
+                        if (c >= '1' && c <= '9') {
+                            int n = c - '0';
+                            if (n >= 1 && n <= attacker.moveCount) found = n - 1;
+                        }
+                    }
+                }
+                idx = found;
+                rc = (idx >= 0) ? 0 : -1;
+            }
+        } else {
+            rc = llm_pick_move_index(prompt, attacker.moveCount, &idx);
+        }
+
         if (dbg != NULL && (dbg[0] == '1' || dbg[0] == '2')) {
             if (rc == 0 && idx >= 0 && idx < attacker.moveCount) {
                 fprintf(stderr, "[LLM] picked index=%d (%s)\n",
